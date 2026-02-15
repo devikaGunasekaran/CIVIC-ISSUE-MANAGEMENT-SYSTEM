@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
+pydantic
+pydantic-settings
+google-generativeai
+python-dotenv
+sentence-transformers
+faiss-cpu
+numpy
+spacy
+groq
