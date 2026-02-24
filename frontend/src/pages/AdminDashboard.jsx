@@ -306,9 +306,28 @@ function ComplaintCard({ complaint, onClick, index }) {
                     </p>
                     <p style={{ color: 'white', fontWeight: 'bold', fontSize: '1.1rem' }}>#{complaint.id}</p>
                 </div>
-                <span className={`status-badge status-${complaint.status}`} style={{ fontSize: '0.75rem' }}>
-                    {complaint.status.replace('_', ' ')}
-                </span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {complaint.ai_insight && (
+                        <span style={{
+                            background: 'rgba(168, 85, 247, 0.15)',
+                            color: '#a855f7',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.65rem',
+                            fontWeight: '700',
+                            border: '1px solid rgba(168, 85, 247, 0.3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}>
+                            <div style={{ width: '4px', height: '4px', background: '#a855f7', borderRadius: '50%' }}></div>
+                            SMART ROUTED
+                        </span>
+                    )}
+                    <span className={`status-badge status-${complaint.status}`} style={{ fontSize: '0.75rem' }}>
+                        {complaint.status.replace('_', ' ')}
+                    </span>
+                </div>
             </div>
 
             {/* Description */}
@@ -489,6 +508,29 @@ function ComplaintModal({ complaint, onClose, onStatusUpdate }) {
                         </p>
                     </div>
                 </div>
+
+                {/* AI Insights - NEW SECTION */}
+                {complaint.ai_insight && (
+                    <div style={{
+                        marginBottom: '25px',
+                        padding: '15px',
+                        background: 'rgba(168, 85, 247, 0.1)',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(168, 85, 247, 0.2)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                            <div style={{ background: '#a855f7', padding: '4px', borderRadius: '4px' }}>
+                                <AlertCircle size={14} color="white" />
+                            </div>
+                            <h3 style={{ color: '#a855f7', fontSize: '0.9rem', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '700' }}>
+                                AI Logic & Insight
+                            </h3>
+                        </div>
+                        <p style={{ color: '#e9d5ff', fontSize: '0.95rem', lineHeight: '1.5', fontStyle: 'italic' }}>
+                            "{complaint.ai_insight}"
+                        </p>
+                    </div>
+                )}
 
                 {/* Update Status */}
                 <div>

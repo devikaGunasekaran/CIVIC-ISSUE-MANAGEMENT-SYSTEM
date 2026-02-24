@@ -67,15 +67,53 @@ function ComplaintDetail() {
 
                         <h4 style={{ color: '#94a3b8', marginBottom: '5px' }}>Priority</h4>
                         <p style={{ color: getPriorityColor(complaint.priority), fontWeight: 'bold' }}>{complaint.priority}</p>
+
+                        {complaint.ai_insight && (
+                            <div style={{
+                                marginTop: '30px',
+                                padding: '15px',
+                                background: 'rgba(168, 85, 247, 0.1)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(168, 85, 247, 0.2)'
+                            }}>
+                                <h4 style={{ color: '#a855f7', fontSize: '0.9rem', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '800' }}>
+                                    🤖 AI Logic & Insight
+                                </h4>
+                                <p style={{ color: '#e9d5ff', fontSize: '0.95rem', lineHeight: '1.5', fontStyle: 'italic' }}>
+                                    "{complaint.ai_insight}"
+                                </p>
+                            </div>
+                        )}
                     </div>
 
-                    <div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         {complaint.image_url && (
-                            <img
-                                src={`http://localhost:8000/uploads/${complaint.image_url.split('/').pop()}`}
-                                alt="Evidence"
-                                style={{ width: '100%', borderRadius: '12px', border: '1px solid #334155' }}
-                            />
+                            <div>
+                                <h4 style={{ color: '#94a3b8', marginBottom: '10px' }}>Evidence Photo</h4>
+                                <img
+                                    src={`http://localhost:8000/uploads/${complaint.image_url.split('/').pop()}`}
+                                    alt="Evidence"
+                                    style={{ width: '100%', borderRadius: '12px', border: '1px solid #334155', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}
+                                />
+                            </div>
+                        )}
+
+                        {complaint.audio_url && (
+                            <div style={{
+                                padding: '20px',
+                                background: '#0f172a',
+                                borderRadius: '12px',
+                                border: '1px solid #1e293b'
+                            }}>
+                                <h4 style={{ color: '#10b981', fontSize: '0.9rem', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></div>
+                                    VOICE COMPLAINT
+                                </h4>
+                                <audio controls style={{ width: '100%' }}>
+                                    <source src={`http://localhost:8000/uploads/${complaint.audio_url.split('/').pop()}`} type="audio/wav" />
+                                    Your browser does not support the audio element.
+                                </audio>
+                            </div>
                         )}
                     </div>
                 </div>

@@ -30,6 +30,7 @@ class ComplaintBase(BaseModel):
     location: Optional[str] = None
     area: Optional[str] = None
     image_url: Optional[str] = None
+    audio_url: Optional[str] = None
 
 class ComplaintCreate(ComplaintBase):
     pass
