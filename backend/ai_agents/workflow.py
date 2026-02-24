@@ -5,7 +5,7 @@ Separated from the core agent logic for cleaner architecture.
 import logging
 from typing import Dict, Optional, TypedDict
 from langgraph.graph import StateGraph, END
-from .system import AgentState, CitizenInput, AnalysisOutput
+from .types import AgentState, CitizenInput, AnalysisOutput
 
 logger = logging.getLogger(__name__)
 

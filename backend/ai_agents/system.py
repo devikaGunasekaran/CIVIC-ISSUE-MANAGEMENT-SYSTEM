@@ -4,14 +4,13 @@ AI Agents Layer (Aligned with User Architecture)
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any, TypedDict
-from typing_extensions import Annotated
 import os
 import uuid
 import json
 import logging
 from math import radians, sin, cos, sqrt, atan2
+from typing import Dict, List, Optional, Any, TypedDict
+from .types import AgentState, CitizenInput, PreprocessedOutput, AnalysisOutput
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -64,7 +63,7 @@ except ImportError:
     GROQ_AVAILABLE = False
     logger.warning("Groq SDK not found. Translation and reasoning will use fallback methods.")
 
-from backend.ai_agents.chennai_locations import CHENNAI_IMPORTANT_LOCATIONS
+from .chennai_locations import CHENNAI_IMPORTANT_LOCATIONS
 
 # ==============================
 # ENV CONFIG
@@ -91,62 +90,6 @@ else:
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # ==============================
-# DATA CLASSES
-# ==============================
-
-@dataclass
-class CitizenInput:
-    text: Optional[str] = None
-    voice_path: Optional[str] = None
-    image_path: Optional[str] = None
-    gps_coordinates: Optional[str] = None
-    area: Optional[str] = None
-
-# ==============================
-# LANGGRAPH STATE
-# ==============================
-
-class AgentState(TypedDict):
-    """
-    The state shared between all agents in the graph
-    """
-    citizen_input: CitizenInput
-    raw_text: str
-    english_text: str
-    ocr_context: str
-    final_text: str
-    location_type: str
-    place_name: str
-    urgency_found: bool
-    ref_case: Optional[str]
-    category: str
-    base_priority: str
-    final_priority: str
-    insight: str
-    status: str
-    dispatch: Dict[str, str]
-
-@dataclass
-class PreprocessedOutput:
-    text: str
-    location_name: Optional[str]
-    location_type: str  # New field: School/Hospital/Residential
-    media: Optional[str]
-    nearby_place: Optional[str] # New field: Name of nearby place (e.g., "DAV School")
-    urgency_keywords_found: bool
-
-@dataclass
-class AnalysisOutput:
-    issue_type: str
-    priority: str
-    status: str
-    reference_case: Optional[str]
-    department: str
-    sla: str
-    eta: str
-    location_insight: str # New field for explaining why ("Near DAV School")
-
-# ==============================
 # MODULE 1 – INPUT PROCESSING
 # ==============================
 
@@ -169,6 +112,16 @@ class InputProcessingAgent:
             # Upload to Gemini (Supports .wav, .mp3, etc.)
             audio_file = genai.upload_file(path=voice_path)
             
+            # ⏳ Wait for file to be processed
+            import time
+            while audio_file.state.name == "PROCESSING":
+                print(".", end="", flush=True)
+                time.sleep(1)
+                audio_file = genai.get_file(audio_file.name)
+            
+            if audio_file.state.name == "FAILED":
+                raise Exception("Audio file processing failed.")
+
             prompt = "Transcribe the following audio complaint into text accurately. If it is in Tamil or Hindi, transcribe it in that language's script. Only return the text of the complaint, nothing else."
             
             response = model.generate_content([prompt, audio_file])
@@ -370,12 +323,12 @@ Analyze the following complaint and classify it.
 Complaint: "{text}"
 
 Tasks:
-1. Classify the Issue Type from: Potholes, Garbage, Broken Garbage Bin, Street Light, Public Toilet, Mosquito Menace, Water Stagnation, Storm Water Drain, Stray Dogs, Fallen Tree, Others
+1. Classify the Issue Type into EXACTLY one of these categories: Potholes, Garbage, Broken Garbage Bin, Street Light, Public Toilet, Mosquito Menace, Water Stagnation, Storm Water Drain, Stray Dogs, Dead Animals, Fallen Tree, Others
 2. Assign Priority: Low, Medium, High, or Critical
 
 Return ONLY a valid JSON object:
 {{
-    "Issue_Type": "Category Name",
+    "Issue_Type": "EXACT CATEGORY NAME",
     "Priority": "Priority Level"
 }}
 """
@@ -395,11 +348,11 @@ You are an AI assistant for a Civic Issue Management System.
 Analyze the following complaint text and classify it.
 Complaint: "{text}"
 Tasks:
-1. Classify the Issue Type (e.g., Potholes, Garbage, Broken Garbage Bin, Street Light, Public Toilet, Mosquito Menace, Water Stagnation, Storm Water Drain, Stray Dogs, Fallen Tree, Others).
+1. Classify the Issue Type into EXACTLY one of: Potholes, Garbage, Broken Garbage Bin, Street Light, Public Toilet, Mosquito Menace, Water Stagnation, Storm Water Drain, Stray Dogs, Dead Animals, Fallen Tree, Others.
 2. Assign a Priority (Low, Medium, High, Critical).
 Return ONLY a JSON object in this format:
 {{
-    "Issue_Type": "Category Name",
+    "Issue_Type": "EXACT CATEGORY NAME",
     "Priority": "Priority Level"
 }}
 """
@@ -487,7 +440,7 @@ class VectorKnowledgeBase:
 # MODULE 6 – POLICY & VALIDATION
 # ==============================
 class PolicyValidationAgent:
-    ALLOWED_ISSUES = ["Potholes", "Garbage", "Broken Garbage Bin", "Street Light", "Public Toilet", "Mosquito Menace", "Water Stagnation", "Storm Water Drain", "Stray Dogs", "Fallen Tree", "Others"]
+    ALLOWED_ISSUES = ["Potholes", "Garbage", "Broken Garbage Bin", "Street Light", "Public Toilet", "Mosquito Menace", "Water Stagnation", "Storm Water Drain", "Stray Dogs", "Dead Animals", "Fallen Tree", "Others"]
     def validate(self, issue_type: str) -> str:
         if any(allowed.lower() in issue_type.lower() for allowed in self.ALLOWED_ISSUES):
             return "Validated"
@@ -507,6 +460,7 @@ class RoutingAgent:
         "Water Stagnation": "Storm Water Drain Dept",
         "Storm Water Drain": "Storm Water Drain Dept",
         "Stray Dogs": "Veterinary Public Health Dept",
+        "Dead Animals": "Veterinary Public Health Dept",
         "Fallen Tree": "Parks and Gardens Dept",
         "Others": "General Administration"
     }
@@ -514,7 +468,7 @@ class RoutingAgent:
     def route(self, issue_type: str, priority: str, area: Optional[str]) -> Dict[str, str]:
         dept = "General Administration"
         for key, value in self.DEPARTMENT_MAP.items():
-            if key.lower() in issue_type.lower():
+            if key.lower() in issue_type.lower() or issue_type.lower() in key.lower():
                 dept = value
                 break
         
@@ -539,7 +493,7 @@ class RoutingAgent:
 # ORCHESTRATOR (Imported from workflow.py)
 # ==============================
 
-from backend.ai_agents.workflow import CivicWorkflowOrchestrator
+from .workflow import CivicWorkflowOrchestrator
 
 class CivicAIAgentSystem:
     

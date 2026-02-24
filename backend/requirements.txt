@@ -14,3 +14,6 @@ faiss-cpu
 numpy
 spacy
 groq
+langgraph
+pytesseract
+pillow

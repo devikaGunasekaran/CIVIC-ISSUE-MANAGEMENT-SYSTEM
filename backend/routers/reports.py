@@ -28,7 +28,9 @@ def determine_fallback_category(description: str):
         "Water Supply": ["water", "leak", "pipe", "supply", "no water", "pressure"],
         "Sanitation": ["drainage", "sewage", "clogged", "smell", "overflow", "gutter"],
         "Public Safety": ["unsafe", "crime", "vandalism", "noise", "accident"],
-        "Traffic": ["traffic", "jam", "parking", "signal", "light"]
+        "Traffic": ["traffic", "jam", "parking", "signal", "light"],
+        "Mosquito Menace": ["mosquito", "dengue", "malaria", "insects", "breeding"],
+        "Dead Animals": ["dead", "carcass", "animal", "dog", "cat", "cow"]
     }
     for category, terms in keywords.items():
         if any(term in description.lower() for term in terms):
