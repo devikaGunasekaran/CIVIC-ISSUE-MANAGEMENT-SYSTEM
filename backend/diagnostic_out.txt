@@ -1,0 +1,63 @@
+C:\Users\S.KAVI SOWMIYA\AppData\Local\Programs\Python\Python310\lib\site-packages\google\api_core\_python_version_support.py:266: FutureWarning: You are using a Python version (3.10.11) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2026-10-04). Please upgrade to the latest Python version, or at least Python 3.11, to continue receiving updates for google.api_core past that date.
+  warnings.warn(message, FutureWarning)
+C:\Users\S.KAVI SOWMIYA\Downloads\CIVIC-ISSUE-MANAGEMENT-SYSTEM-main (1)\CIVIC-ISSUE-MANAGEMENT-SYSTEM-main\backend\diagnose_gemini.py:2: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+--- Gemini API Diagnostics ---
+API Key found: AIzaS...oO85A
+Configuration: SUCCESS
+Listing models...
+Available model: models/gemini-2.5-flash (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.5-pro (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.0-flash (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.0-flash-001 (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.0-flash-exp-image-generation (Methods: ['generateContent', 'countTokens', 'bidiGenerateContent'])
+Available model: models/gemini-2.0-flash-lite-001 (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.0-flash-lite (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.5-flash-preview-tts (Methods: ['countTokens', 'generateContent'])
+Available model: models/gemini-2.5-pro-preview-tts (Methods: ['countTokens', 'generateContent', 'batchGenerateContent'])
+Available model: models/gemma-3-1b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemma-3-4b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemma-3-12b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemma-3-27b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemma-3n-e4b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemma-3n-e2b-it (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemini-flash-latest (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-flash-lite-latest (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-pro-latest (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.5-flash-lite (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-2.5-flash-image (Methods: ['generateContent', 'countTokens', 'batchGenerateContent'])
+Available model: models/gemini-2.5-flash-lite-preview-09-2025 (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-3-pro-preview (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-3-flash-preview (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-3.1-pro-preview (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-3.1-pro-preview-customtools (Methods: ['generateContent', 'countTokens', 'createCachedContent', 'batchGenerateContent'])
+Available model: models/gemini-3-pro-image-preview (Methods: ['generateContent', 'countTokens', 'batchGenerateContent'])
+Available model: models/nano-banana-pro-preview (Methods: ['generateContent', 'countTokens', 'batchGenerateContent'])
+Available model: models/gemini-3.1-flash-image-preview (Methods: ['generateContent', 'countTokens', 'batchGenerateContent'])
+Available model: models/gemini-robotics-er-1.5-preview (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemini-2.5-computer-use-preview-10-2025 (Methods: ['generateContent', 'countTokens'])
+Available model: models/deep-research-pro-preview-12-2025 (Methods: ['generateContent', 'countTokens'])
+Available model: models/gemini-embedding-001 (Methods: ['embedContent', 'countTextTokens', 'countTokens', 'asyncBatchEmbedContent'])
+Available model: models/aqa (Methods: ['generateAnswer'])
+Available model: models/imagen-4.0-generate-001 (Methods: ['predict'])
+Available model: models/imagen-4.0-ultra-generate-001 (Methods: ['predict'])
+Available model: models/imagen-4.0-fast-generate-001 (Methods: ['predict'])
+Available model: models/veo-2.0-generate-001 (Methods: ['predictLongRunning'])
+Available model: models/veo-3.0-generate-001 (Methods: ['predictLongRunning'])
+Available model: models/veo-3.0-fast-generate-001 (Methods: ['predictLongRunning'])
+Available model: models/veo-3.1-generate-preview (Methods: ['predictLongRunning'])
+Available model: models/veo-3.1-fast-generate-preview (Methods: ['predictLongRunning'])
+Available model: models/gemini-2.5-flash-native-audio-latest (Methods: ['countTokens', 'bidiGenerateContent'])
+Available model: models/gemini-2.5-flash-native-audio-preview-09-2025 (Methods: ['countTokens', 'bidiGenerateContent'])
+Available model: models/gemini-2.5-flash-native-audio-preview-12-2025 (Methods: ['countTokens', 'bidiGenerateContent'])
+ERROR: gemini-1.5-flash NOT found in available models.
+Testing simple generation with models/gemini-flash-latest...
+Generation Response: Hello! Yes, I am active and ready to help. How can I assist you today?
+Generation Test: SUCCESS

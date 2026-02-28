@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  body {
+    @apply bg-white text-secondary font-sans antialiased relative min-h-screen selection:bg-primary/20;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+  }
+
+
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold transition-all duration-300 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] border border-secondary/20;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 rounded-xl border-2 border-primary text-primary font-semibold transition-all duration-300 hover:bg-white hover:shadow-sm;
+  }
+
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm rounded-2xl border-l-4 border-primary p-6 shadow-soft transition-all duration-300 hover:shadow-premium hover:-translate-y-1;
+  }
+
+  .form-input {
+    @apply w-full px-4 py-3 rounded-lg border border-earth/20 bg-white/50 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all duration-200 text-secondary;
+  }
+
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border;
+  }
+
+  /* Earthy status classes */
+  .status-SUBMITTED {
+    @apply bg-blue-50 text-blue-700 border-blue-100;
+  }
+
+  .status-IN_PROGRESS {
+    @apply bg-highlight/10 text-highlight border-highlight/20;
+  }
+
+  .status-RESOLVED {
+    @apply bg-primary/10 text-primary border-primary/20;
+  }
+
+  .badge-high {
+    @apply bg-red-50 text-red-700 border-red-100;
+  }
+
+  .badge-medium {
+    @apply bg-highlight/10 text-highlight border-highlight/20;
+  }
+
+  .badge-low {
+    @apply bg-primary/10 text-primary border-primary/20;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
