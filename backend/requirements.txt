@@ -17,3 +17,5 @@ groq
 easyocr
 deep-translator
 Pillow
+langgraph
+pytesseract

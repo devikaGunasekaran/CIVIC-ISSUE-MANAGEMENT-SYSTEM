@@ -7,6 +7,12 @@ import os
 import models, schemas, database
 from routers import auth
 
+# Explicitly import for background tasks
+if os.path.exists("backend"):
+    from backend.ai_agents.system import CivicAIAgentSystem, CitizenInput
+else:
+    from ai_agents.system import CivicAIAgentSystem, CitizenInput
+
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
 UPLOAD_DIR = "uploads"
@@ -20,25 +26,29 @@ def get_agent_system() -> Optional[CivicAIAgentSystem]:
     global _agent_system
     if _agent_system is None:
         try:
-            from ai_agents.system import CivicAIAgentSystem, CitizenInput # CitizenInput is also needed later
             _agent_system = CivicAIAgentSystem()
             print("[OK] AI Agent System Initialized (Lazy)")
-        except ImportError as e:
+        except Exception as e:
             print(f"[ERROR] Failed to initialize AI Agents: {e}")
     return _agent_system
-
-# Try to import keywords for fallback; if it fails (circ import), define a smaller set
-try:
-    from ai_agents.system import CIVIC_CATEGORY_KEYWORDS
-except ImportError:
-    CIVIC_CATEGORY_KEYWORDS = {}
 
 def determine_fallback_category(description: str):
     if not description: return "General"
     desc_lower = description.lower()
     
-    # Use the same keywords as the AI Agent for consistency
-    for category, terms in CIVIC_CATEGORY_KEYWORDS.items():
+    keywords = {
+        "Road Maintenance": ["pothole", "road", "maintenance", "crack", "asphalt", "bump"],
+        "Waste Management": ["garbage", "trash", "waste", "bin", "dump", "dirty", "rubbish"],
+        "Electricity": ["street light", "lamp", "electric", "power", "outage", "wire", "pole"],
+        "Water Supply": ["water", "leak", "pipe", "supply", "no water", "pressure"],
+        "Sanitation": ["drainage", "sewage", "clogged", "smell", "overflow", "gutter"],
+        "Public Safety": ["unsafe", "crime", "vandalism", "noise", "accident"],
+        "Traffic": ["traffic", "jam", "parking", "signal", "light"],
+        "Mosquito Menace": ["mosquito", "dengue", "malaria", "insects", "breeding"],
+        "Dead Animals": ["dead", "carcass", "animal", "dog", "cat", "cow"]
+    }
+    
+    for category, terms in keywords.items():
         if any(term in desc_lower for term in terms):
             return category
             
@@ -46,14 +56,9 @@ def determine_fallback_category(description: str):
 
 def process_complaint_ai(db: Session, complaint_id: int):
     """
-    Background task to run heavy AI agents and update the complaint synchronously.
+    Background task to run heavy AI agents and update the complaint.
     """
     try:
-        from ai_agents.system import CitizenInput
-        # We need a fresh DB session in the background if the main one is closed, 
-        # but SQLAlchemy Session from Depends(database.get_db) is usually scoped.
-        # However, FastAPI BackgroundTasks can share it if we are careful.
-        
         complaint = db.query(models.Complaint).filter(models.Complaint.id == complaint_id).first()
         if not complaint:
             return
@@ -65,12 +70,10 @@ def process_complaint_ai(db: Session, complaint_id: int):
         print(f"[BG] Processing AI for Complaint #{complaint_id}")
         
         # Prepare Input
-        # Note: we use the original location string (e.g. "lat, lon | address")
         citizen_input = CitizenInput(
             text=complaint.description,
             voice_path=complaint.audio_url,
             image_path=complaint.image_url,
-            paper_image_path=complaint.image_url if "paper_" in (complaint.image_url or "") else None,
             gps_coordinates=complaint.location.split('|')[0].strip() if '|' in (complaint.location or "") else complaint.location,
             area=complaint.area
         )
@@ -82,7 +85,7 @@ def process_complaint_ai(db: Session, complaint_id: int):
         updated_desc = complaint.description
         if not updated_desc and analysis.transcribed_text:
             updated_desc = analysis.transcribed_text
-        elif analysis.transcribed_text and analysis.transcribed_text not in updated_desc:
+        elif analysis.transcribed_text and analysis.transcribed_text not in (updated_desc or ""):
             updated_desc = f"{updated_desc}\n\n[Transcribed: {analysis.transcribed_text}]"
         
         updated_desc = f"{updated_desc}\n\n[AI Routed to: {analysis.department} | ETA: {analysis.eta}]"
@@ -90,9 +93,9 @@ def process_complaint_ai(db: Session, complaint_id: int):
         complaint.description = updated_desc
         complaint.category = analysis.issue_type
         complaint.priority = analysis.priority
-        complaint.area = analysis.detected_zone or complaint.area
+        complaint.area = (analysis.detected_zone or complaint.area) if hasattr(analysis, 'detected_zone') else complaint.area
         complaint.ai_insight = analysis.location_insight
-        complaint.status = "PENDING" # Mark as "AI Analyzed" (activates second step in UI timeline)
+        complaint.status = "PENDING"
         
         db.commit()
         print(f"[BG] AI Analysis Complete for Complaint #{complaint_id}")
@@ -113,7 +116,6 @@ async def create_complaint(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    # 1. Save Files Immediately (Blocking)
     image_url = None
     if image:
         file_path = f"{UPLOAD_DIR}/{image.filename}"
@@ -135,10 +137,9 @@ async def create_complaint(
             shutil.copyfileobj(paper_complaint.file, buffer)
         paper_complaint_path = file_path
 
-    # 2. Extract quick fallback category (Rules-based)
+    # Extract quick fallback category
     category = determine_fallback_category(description)
     
-    # 3. Create Complaint Record (Instant)
     new_complaint = models.Complaint(
         description=description,
         location=location,
@@ -154,7 +155,7 @@ async def create_complaint(
     db.commit()
     db.refresh(new_complaint)
 
-    # 4. Queue AI Agents for Background Execution
+    # Queue AI Agents for Background Execution
     background_tasks.add_task(process_complaint_ai, db, new_complaint.id)
 
     return new_complaint
@@ -169,10 +170,9 @@ def get_complaints(
     if current_user.role == "admin":
         complaints = db.query(models.Complaint).offset(skip).limit(limit).all()
     elif current_user.role == "area_admin":
-        # Filter by area assigned to the admin
         complaints = db.query(models.Complaint).filter(models.Complaint.area == current_user.area).offset(skip).limit(limit).all()
     else:
-        complaints = db.query(models.Complaint).filter(models.Complaint.user_id == current_user.id).offset(skip).limit(limit).all()
+        complaints = db.query(models.Complaint).filter(models.user_id == current_user.id).offset(skip).limit(limit).all()
     return complaints
 
 @router.get("/{complaint_id}", response_model=schemas.ComplaintResponse)
