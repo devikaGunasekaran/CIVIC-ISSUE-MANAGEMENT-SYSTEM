@@ -20,18 +20,35 @@ function ComplaintDetail() {
     const { t } = useTranslation();
 
     useEffect(() => {
-        const fetchComplaint = async () => {
+        let pollInterval;
+        const fetchComplaint = async (showLoading = true) => {
+            if (showLoading) setLoading(true);
             try {
                 const response = await api.get(`/complaints/${id}`);
                 setComplaint(response.data);
+
+                // If it's already analyzed (not SUBMITTED), stop polling
+                if (response.data.status !== 'SUBMITTED' && pollInterval) {
+                    clearInterval(pollInterval);
+                }
             } catch (error) {
                 console.error('Error fetching complaint:', error);
-                navigate('/track');
+                if (showLoading) navigate('/track');
             } finally {
-                setLoading(false);
+                if (showLoading) setLoading(false);
             }
         };
-        fetchComplaint();
+
+        fetchComplaint(true);
+
+        // Auto-poll every 5 seconds if the complaint is still in SUBMITTED state
+        pollInterval = setInterval(() => {
+            fetchComplaint(false);
+        }, 5000);
+
+        return () => {
+            if (pollInterval) clearInterval(pollInterval);
+        };
     }, [id, navigate]);
 
     if (loading) return (
@@ -124,7 +141,15 @@ function ComplaintDetail() {
                                 </div>
                                 <div>
                                     <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">{t('complaintDetail.systemPriority')}</h4>
-                                    <PriorityBadge priority={complaint.priority} size="md" />
+                                    <div className="flex items-center gap-3">
+                                        <PriorityBadge priority={complaint.priority} size="md" />
+                                        {complaint.suggested_sla && (
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-primary uppercase bg-primary/10 px-2 py-1.5 rounded-lg border border-primary/20">
+                                                <Clock size={12} />
+                                                SLA: {complaint.suggested_sla}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -178,15 +203,35 @@ function ComplaintDetail() {
                                 </div>
                                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-green-50 space-y-4">
                                     <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest text-gray-400">
-                                        <span>{t('complaintDetail.infraScore')}</span>
-                                        <span className="text-primary italic">{t('complaintDetail.infraSecure')}</span>
+                                        <span>Infrastructure Priority Score</span>
+                                        <span className="text-primary font-extrabold">{complaint.priority_score || 0}/100</span>
                                     </div>
                                     <div className="h-3 bg-gray-50 rounded-full overflow-hidden">
-                                        <div className="h-full bg-primary w-[85%] animate-pulse rounded-full"></div>
+                                        <div
+                                            className={`h-full transition-all duration-1000 rounded-full ${complaint.priority === 'CRITICAL' ? 'bg-red-500' :
+                                                complaint.priority === 'HIGH' ? 'bg-orange-500' :
+                                                    complaint.priority === 'MEDIUM' ? 'bg-amber-500' : 'bg-emerald-500'
+                                                }`}
+                                            style={{ width: `${complaint.priority_score || 0}%` }}
+                                        ></div>
                                     </div>
-                                    <p className="text-[0.65rem] text-gray-400 leading-tight">
-                                        {t('complaintDetail.infraDesc')}
-                                    </p>
+                                    <div className="space-y-2">
+                                        <h4 className="text-[0.65rem] font-bold uppercase tracking-widest text-gray-400">Score Breakdown</h4>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {complaint.ai_insight ? (
+                                                complaint.ai_insight.split(',').map((reason, i) => (
+                                                    <span key={i} className="px-2 py-1 bg-primary/5 border border-primary/10 text-primary text-[0.65rem] font-bold rounded-lg flex items-center gap-1.5 transition-all hover:bg-primary/10">
+                                                        <Sparkles size={8} />
+                                                        {reason.trim()}
+                                                    </span>
+                                                ))
+                                            ) : (
+                                                <p className="text-[0.65rem] text-gray-400 leading-tight italic">
+                                                    AI is currently assessing proximity to hospitals, schools, and historical data patterns...
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -324,12 +369,12 @@ function StatusBadge({ status }) {
 }
 
 function getPriorityStyle(priority) {
-    switch (priority) {
+    switch (priority?.toUpperCase()) {
         case 'CRITICAL': return 'bg-red-50 text-red-600 border-red-100';
         case 'HIGH': return 'bg-orange-50 text-orange-600 border-orange-100';
-        case 'MEDIUM': return 'bg-yellow-50 text-yellow-600 border-yellow-100';
-        case 'LOW': return 'bg-green-50 text-green-600 border-green-100';
-        default: return 'bg-gray-50 text-gray-600 border-gray-100';
+        case 'MEDIUM': return 'bg-amber-50 text-amber-600 border-amber-100';
+        case 'LOW': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+        default: return 'bg-gray-50 text-gray-500 border-gray-100';
     }
 }
 

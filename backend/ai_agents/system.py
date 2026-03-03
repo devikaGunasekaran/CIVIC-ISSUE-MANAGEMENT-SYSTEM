@@ -31,10 +31,28 @@ except ImportError:
 try:
     import pytesseract
     from PIL import Image
+    TESSERACT_AVAILABLE = True
 except ImportError:
     pytesseract = None
     Image = None
+    TESSERACT_AVAILABLE = False
     logger.warning("Pytesseract or PIL not found. OCR functionality will be limited.")
+
+try:
+    import easyocr as _easyocr_module
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    _easyocr_module = None
+    EASYOCR_AVAILABLE = False
+    logger.warning("EasyOCR not installed. Paper OCR will fall back to Tesseract.")
+
+try:
+    from deep_translator import GoogleTranslator as _GoogleTranslator
+    DEEP_TRANSLATOR_AVAILABLE = True
+except ImportError:
+    _GoogleTranslator = None
+    DEEP_TRANSLATOR_AVAILABLE = False
+    logger.warning("deep-translator not installed. OCR translation will be skipped.")
 
 try:
     import spacy
@@ -136,9 +154,23 @@ NORMALIZED_CIVIC_TERMS = {
     "mosu": "mosquito",
     "kosu": "mosquito",
     "adhigam": "more / heavy presence",
-    "naai": "dog",
-    "stray dog": "street dog",
-    "moraiykuthu": "growling / aggressive",
+    "naai": "stray dog",
+    "stray dog": "street dog / stray dog",
+    "moraiykuthu": "growling / aggressive dog",
+    # Stray dog Tanglish
+    "tholaya": "nuisance / trouble",
+    "thollai": "nuisance / trouble",
+    "dog tholaya": "stray dog nuisance",
+    "dog thollai": "stray dog nuisance",
+    "naai tholaya": "stray dog nuisance",
+    "naai thollai": "stray dog nuisance",
+    "naai iruku": "dogs present / stray dogs here",
+    "naai adhigam": "too many stray dogs",
+    "naai romba": "many dogs",
+    "naai bayam": "fear of dogs",
+    "naai attack": "dog attack",
+    "pakathula": "near / nearby",
+    "orey": "only / really",
     
     # Tamil Script Support
     "தெரு விளக்கு": "street light",
@@ -185,6 +217,8 @@ class CitizenInput:
     paper_image_path: Optional[str] = None  # NEW: Paper complaint photo for OCR
     gps_coordinates: Optional[str] = None
     area: Optional[str] = None
+    nearby_complaint_density: int = 0
+    historical_frequency: int = 0
 
 # = [NEW] CIVIC CATEGORY KEYWORDS (Tamil, Tanglish, English)
 CIVIC_CATEGORY_KEYWORDS = {
@@ -216,7 +250,21 @@ CIVIC_CATEGORY_KEYWORDS = {
         "kosu adhigam"
     ],
     "Stray Dogs": [
-        "dog", "naai", "stray", "biting", "barking", "naai thollai", "theru naai"
+        # English
+        "stray dog", "street dog", "dog bite", "dog attack", "dog menace", "dogs",
+        "dog problem", "dog nuisance", "dog barking", "biting dog", "aggressive dog",
+        # Tanglish (Tamil+English mix)
+        "naai", "naai thollai", "naai tholaya", "dog thollai", "dog tholaya",
+        "naai iruku", "theru naai", "naai adhigam", "naai romba", "naai bite",
+        "naai moraiykuthu", "naai kedaikkuthu", "dogs iruku", "dog iruku",
+        "naai attack", "naai paathu", "naai bayam", "naai problem",
+        # Tamil script
+        "நாய்", "தெரு நாய்", "நாய்கள்", "நாய் கடித்தது"
+    ],
+    "Dead Animals": [
+        "dead animal", "dead dog", "dead cat", "dead cow", "carcass",
+        "animal carcass", "dead body animal", "animal died", "rotting animal",
+        "dead naai", "settha naai", "animal sethuruchu"
     ],
     "Fallen Tree": [
         "tree fallen", "maram vilunthuruche", "branch broken", "tree block", "maram"
@@ -237,7 +285,7 @@ class AgentState(TypedDict):
     ocr_context: str
     final_text: str
     location_type: str
-    place_name: str
+    place_name: Optional[str]
     urgency_found: bool
     ref_case: Optional[str]
     category: str
@@ -247,8 +295,13 @@ class AgentState(TypedDict):
     status: str
     detected_zone: Optional[str]
     dispatch: Dict[str, str]
-    category_locked: bool = False
-    confidence: float = 0.0
+    category_locked: bool
+    confidence: float
+    hospital_dist: float
+    major_road_dist: float
+    nearby_complaint_density: int
+    historical_frequency: int
+    priority_score: float
 
 @dataclass
 class PreprocessedOutput:
@@ -259,6 +312,8 @@ class PreprocessedOutput:
     nearby_place: Optional[str] # New field: Name of nearby place (e.g., "DAV School")
     urgency_keywords_found: bool
     detected_zone: Optional[str] = None
+    hospital_dist: float = 10.0
+    major_road_dist: float = 10.0
 
 @dataclass
 class AnalysisOutput:
@@ -271,7 +326,91 @@ class AnalysisOutput:
     eta: str
     location_insight: str # New field for explaining why ("Near DAV School")
     detected_zone: Optional[str] # New field for auto-zone detection
+    priority_score: float = 0.0
     transcribed_text: Optional[str] = None # NEW: The actual text extracted from voice/OCR
+
+# ==============================
+# PAPER OCR AGENT  (merged from ocr_agent.py)
+# ==============================
+
+_easyocr_reader_instance: Any = None   # lazy singleton
+
+def _get_easyocr_reader() -> Optional[Any]:
+    """Lazy-init EasyOCR reader (downloads model first time)."""
+    global _easyocr_reader_instance
+    if _easyocr_reader_instance is None and _easyocr_module is not None:
+        try:
+            logger.info("Initializing EasyOCR reader for Tamil + English...")
+            _easyocr_reader_instance = _easyocr_module.Reader(['ta', 'en'], gpu=False)
+            logger.info("EasyOCR reader ready.")
+        except Exception as e:
+            logger.error(f"EasyOCR init failed: {e}")
+    return _easyocr_reader_instance
+
+
+class PaperOCRAgent:
+    """
+    Extracts text from paper complaint images (Tamil or English,
+    handwritten or printed) and translates to English.
+
+    Primary  : EasyOCR   — best Tamil handwriting support
+    Fallback : Tesseract — basic printed text
+    """
+
+    def extract_text(self, image_path: str) -> str:
+        if not os.path.exists(image_path):
+            logger.error(f"[PaperOCR] Image not found: {image_path}")
+            return ""
+
+        # --- EasyOCR (primary) ---
+        reader = _get_easyocr_reader()
+        if reader is not None:
+            try:
+                results = reader.readtext(image_path, detail=0, paragraph=True)
+                if results:
+                    raw = " ".join(str(r) for r in results).strip()
+                    logger.info(f"[PaperOCR] EasyOCR: '{raw[:80]}'")
+                    return raw
+            except Exception as e:
+                logger.error(f"[PaperOCR] EasyOCR failed: {e}. Trying Tesseract.")
+
+        # --- Tesseract (fallback) ---
+        if pytesseract is not None and Image is not None:
+            try:
+                img = Image.open(image_path)
+                raw = pytesseract.image_to_string(img, lang='tam+eng', config='--psm 6')
+                if not raw.strip():
+                    raw = pytesseract.image_to_string(img, config='--psm 6')
+                raw = raw.strip()
+                logger.info(f"[PaperOCR] Tesseract: '{raw[:80]}'")
+                return raw
+            except Exception as e:
+                logger.error(f"[PaperOCR] Tesseract failed: {e}")
+
+        logger.warning("[PaperOCR] No OCR engine available.")
+        return ""
+
+    def translate_to_english(self, text: str) -> str:
+        if not text.strip() or _GoogleTranslator is None:
+            return text
+        try:
+            translated = _GoogleTranslator(source='auto', target='en').translate(text)
+            result = translated if translated else text
+            logger.info(f"[PaperOCR] Translated: '{text[:50]}' → '{str(result)[:50]}'")
+            return str(result)
+        except Exception as e:
+            logger.error(f"[PaperOCR] Translation failed: {e}")
+            return text
+
+    def process(self, image_path: str) -> str:
+        """Full pipeline: extract text → translate to English."""
+        logger.info(f"[PaperOCR] Processing: {image_path}")
+        raw = self.extract_text(image_path)
+        if not raw:
+            logger.warning("[PaperOCR] No text extracted.")
+            return ""
+        return self.translate_to_english(raw)
+
 
 # ==============================
 # MODULE 1 – INPUT PROCESSING
@@ -279,14 +418,11 @@ class AnalysisOutput:
 
 class InputProcessingAgent:
     """
-    Handles Voice -> Text, Paper OCR, and Translation
+    Handles Voice → Text, Paper OCR, and Translation.
+    PaperOCRAgent is now defined directly in this module (no separate import).
     """
     def __init__(self):
-        try:
-            from ai_agents.ocr_agent import PaperOCRAgent
-            self.paper_ocr: Optional[Any] = PaperOCRAgent()
-        except ImportError:
-            self.paper_ocr = None
+        self.paper_ocr: PaperOCRAgent = PaperOCRAgent()
 
     def speech_to_text(self, voice_path: str) -> str:
         """
@@ -424,7 +560,8 @@ class FeatureExtractionAgent:
     """
     def __init__(self):
         self.nlp = nlp_engine
-        self.locations_db = CHENNAI_IMPORTANT_LOCATIONS # Use our new DB
+        self.locations_db = CHENNAI_IMPORTANT_LOCATIONS  # still used for zone detection
+        self._overpass_cache: Dict[str, Any] = {}
 
     def extract_entities(self, text: str) -> Optional[str]:
         if not self.nlp:
@@ -453,30 +590,223 @@ class FeatureExtractionAgent:
         c = 2 * atan2(sqrt(a), sqrt(1-a))
         return R * c
 
-    def detect_location_type_from_gps(self, gps_coordinates: str) -> tuple[str, str]:
+    def _query_overpass(self, lat: float, lon: float, amenity_type: str, radius_m: int = 1000, key: str = "amenity") -> list:
         """
-        Detect if GPS is near any important location.
-        Returns: (location_type, place_name)
+        Dynamically query OpenStreetMap's Overpass API to find nearby places.
+        key="amenity" (default) or "shop" (for malls), etc.
         """
-        if not gps_coordinates:
-            return "Residential", None
-        
+        cache_key = f"{lat:.4f},{lon:.4f},{key}={amenity_type},{radius_m}"
+        if cache_key in self._overpass_cache:
+            return self._overpass_cache[cache_key]
+
         try:
-            # Handle potential spaces
+            import urllib.request
+            import urllib.parse
+
+            # Overpass QL query — finds nodes/ways of a given key=value near the point
+            query = f"""
+[out:json][timeout:5];
+(
+  node["{key}"="{amenity_type}"](around:{radius_m},{lat},{lon});
+  way["{key}"="{amenity_type}"](around:{radius_m},{lat},{lon});
+);
+out center 5;
+"""
+            url = "https://overpass-api.de/api/interpreter"
+            data = urllib.parse.urlencode({"data": query}).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            req.add_header("User-Agent", "CivicIssueManager/1.0")
+
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                result = json.loads(resp.read().decode())
+                elements = result.get("elements", [])
+                self._overpass_cache[cache_key] = elements
+                return elements
+
+        except Exception as e:
+            logger.warning(f"[Overpass] Query failed for {amenity_type} near ({lat},{lon}): {e}")
+            return []
+
+    def _query_overpass_roads(self, lat: float, lon: float, radius_m: int = 500) -> list:
+        """Query major roads near a point via Overpass API."""
+        cache_key = f"{lat:.4f},{lon:.4f},roads,{radius_m}"
+        if cache_key in self._overpass_cache:
+            return self._overpass_cache[cache_key]
+
+        try:
+            import urllib.request
+            import urllib.parse
+
+            query = f"""
+[out:json][timeout:5];
+way["highway"~"^(primary|secondary|trunk|motorway)$"](around:{radius_m},{lat},{lon});
+out tags 5;
+"""
+            url = "https://overpass-api.de/api/interpreter"
+            data = urllib.parse.urlencode({"data": query}).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            req.add_header("User-Agent", "CivicIssueManager/1.0")
+
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                result = json.loads(resp.read().decode())
+                elements = result.get("elements", [])
+                self._overpass_cache[cache_key] = elements
+                return elements
+
+        except Exception as e:
+            logger.warning(f"[Overpass] Road query failed near ({lat},{lon}): {e}")
+            return []
+
+    def get_nearest_distance(self, lat: float, lon: float, amenity: str, key: str = "amenity") -> tuple[float, Optional[str]]:
+        """
+        Use live Overpass API to find the nearest amenity.
+        Returns (distance_km, name)
+        """
+        elements = self._query_overpass(lat, lon, amenity, radius_m=2000, key=key)
+        if not elements:
+            return 10.0, None  # Default: far away if no data
+
+        best_dist = float("inf")
+        best_name = None
+
+        for el in elements:
+            # 'center' is returned for ways, direct lat/lon for nodes
+            el_lat = el.get("lat") or (el.get("center") or {}).get("lat")
+            el_lon = el.get("lon") or (el.get("center") or {}).get("lon")
+            if el_lat and el_lon:
+                d = self.calculate_distance(lat, lon, float(el_lat), float(el_lon))
+                if d < best_dist:
+                    best_dist = d
+                    best_name = el.get("tags", {}).get("name", amenity.capitalize())
+
+        return (round(best_dist, 3), best_name) if best_dist != float("inf") else (10.0, None)
+
+    def get_nearest_road_distance(self, lat: float, lon: float) -> tuple[float, Optional[str]]:
+        """Use live Overpass API to find the nearest primary/trunk road."""
+        elements = self._query_overpass_roads(lat, lon, radius_m=1000)
+        if not elements:
+            return 10.0, None
+
+        # For roads (ways without center), we take the road's name only
+        road_names = [el.get("tags", {}).get("name", "Major Road") for el in elements if "tags" in el]
+        # Return approximate distance as < 1.0 if any road found within radius
+        best_name = road_names[0] if road_names else None
+        approx_dist = 0.5 if elements else 10.0  # Within the radius means nearby
+        return approx_dist, best_name
+
+    def detect_location_type_from_gps(self, gps_coordinates: str) -> tuple[str, Optional[str], Dict[str, Any]]:
+        """
+        Optimized detection: 
+        1. Single Overpass query for ALL amenities (Hospital, School, Mall, etc.)
+        2. Multiple fallback servers to avoid 429/timeout errors.
+        """
+        metrics = {
+            "hospital_dist": 10.0,
+            "major_road_dist": 10.0,
+            "nearby_hospital": None,
+            "nearby_road": None
+        }
+
+        if not gps_coordinates:
+            return "Residential", None, metrics
+
+        try:
             coords = gps_coordinates.replace(" ", "").split(',')
             lat, lon = float(coords[0]), float(coords[1])
         except Exception as e:
             logger.error(f"GPS Parsing Error: {e}")
-            return "Residential", None
+            return "Residential", None, metrics
 
-        # Loop through all categories in our dictionary
-        for category, places in self.locations_db.items():
-            for place in places:
-                dist = self.calculate_distance(lat, lon, place["lat"], place["lon"])
-                if dist <= place["radius"]:
-                    return place["type"], place["name"] # Return the specific type and name
+        # Combined Overpass QL Query
+        query = f"""
+[out:json][timeout:10];
+(
+  node["amenity"~"hospital|school|college|university|bus_station"](around:2000,{lat},{lon});
+  way["amenity"~"hospital|school|college|university|bus_station"](around:2000,{lat},{lon});
+  node["shop"="mall"](around:2000,{lat},{lon});
+  way["shop"="mall"](around:2000,{lat},{lon});
+  way["highway"~"^(primary|secondary|trunk|motorway)$"](around:1000,{lat},{lon});
+);
+out center;
+"""
+        servers = [
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass.osm.ch/api/interpreter"
+        ]
 
-        return "Residential", None
+        elements = []
+        for server in servers:
+            try:
+                import urllib.request
+                import urllib.parse
+                data = urllib.parse.urlencode({"data": query}).encode()
+                req = urllib.request.Request(server, data=data, method="POST")
+                req.add_header("User-Agent", "CivicIssueManager/1.0")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    result = json.loads(resp.read().decode())
+                    elements = result.get("elements", [])
+                    if elements: break # Success!
+            except Exception as e:
+                logger.warning(f"[Overpass] Server {server} failed: {e}")
+                continue
+
+        if not elements:
+            logger.warning(f"[Overpass] All servers failed for ({lat},{lon})")
+            return "Residential", None, metrics
+
+        # Process Results
+        nearest = {
+            "Hospital": (10.0, None),
+            "School": (10.0, None),
+            "College": (10.0, None),
+            "Mall": (10.0, None),
+            "Transport Hub": (10.0, None),
+            "Major Road": (10.0, None)
+        }
+
+        for el in elements:
+            el_lat = el.get("lat") or (el.get("center") or {}).get("lat")
+            el_lon = el.get("lon") or (el.get("center") or {}).get("lon")
+            if not el_lat or not el_lon: continue
+
+            dist = self.calculate_distance(lat, lon, float(el_lat), float(el_lon))
+            tags = el.get("tags", {})
+            name = tags.get("name")
+            
+            # Map OSM tags to our types
+            amenity = tags.get("amenity")
+            shop = tags.get("shop")
+            highway = tags.get("highway")
+
+            m_type = None
+            if amenity == "hospital": m_type = "Hospital"
+            elif amenity == "school": m_type = "School"
+            elif amenity in ["college", "university"]: m_type = "College"
+            elif amenity == "bus_station": m_type = "Transport Hub"
+            elif shop == "mall": m_type = "Mall"
+            elif highway in ["primary", "secondary", "trunk", "motorway"]: m_type = "Major Road"
+
+            if m_type and dist < nearest[m_type][0]:
+                nearest[m_type] = (dist, name or m_type)
+
+        # Update metrics
+        metrics["hospital_dist"] = round(nearest["Hospital"][0], 3)
+        metrics["major_road_dist"] = round(nearest["Major Road"][0], 3)
+        metrics["nearby_hospital"] = nearest["Hospital"][1]
+        metrics["nearby_road"] = nearest["Major Road"][1]
+
+        logger.info(f"[Overpass Combined] Hospital: {metrics['hospital_dist']}km, Road: {metrics['major_road_dist']}km")
+
+        # Priority return logic
+        check_order = ["Hospital", "School", "College", "Mall", "Transport Hub"]
+        thresholds = {"Hospital": 0.5, "School": 0.4, "College": 0.5, "Mall": 0.4, "Transport Hub": 0.3}
+
+        for o in check_order:
+            if nearest[o][0] <= thresholds[o]:
+                return o, nearest[o][1], metrics
+
+        return "Residential", None, metrics
 
     def detect_urgency_keywords(self, text: str) -> bool:
         keywords = ["emergency", "danger", "fire", "accident", "urgent", "blocked", "stuck"]
@@ -502,7 +832,7 @@ class FeatureExtractionAgent:
                             # Find which zone contains this locality name
                             for zone, localities in CHENNAI_ZONE_MAPPING.items():
                                 if any(l.lower() in place["name"].lower() for l in localities):
-                                    return f"{zone} Zone"
+                                    return zone
 
                 # Fallback to OpenStreetMap Reverse Geocoding via Geopy
                 geolocator = Nominatim(user_agent="civic_issue_manager")
@@ -525,10 +855,10 @@ class FeatureExtractionAgent:
         text_lower = text.lower()
         for zone, localities in CHENNAI_ZONE_MAPPING.items():
             if zone.lower() in text_lower:
-                return f"{zone} Zone"
+                return zone
             for loc in localities:
                 if loc.lower() in text_lower:
-                    return f"{zone} Zone"
+                    return zone
 
         return None
 
@@ -537,7 +867,7 @@ class FeatureExtractionAgent:
         for zone, localities in CHENNAI_ZONE_MAPPING.items():
             for loc in localities:
                 if loc.lower() in locality_lower or locality_lower in loc.lower():
-                    return f"{zone} Zone"
+                    return zone
         return None
 
     def process(self, text: str, image_path: Optional[str], gps_coordinates: Optional[str]) -> PreprocessedOutput:
@@ -565,7 +895,7 @@ class FeatureExtractionAgent:
             elif "college" in text_lower: location_type = "College"
 
         # 2. Detect location type via GPS (Override text if valid)
-        gps_type, gps_place = self.detect_location_type_from_gps(gps_coordinates)
+        gps_type, gps_place, metrics = self.detect_location_type_from_gps(gps_coordinates)
         if gps_type != "Residential":
             location_type = gps_type
             nearby_place = gps_place
@@ -578,7 +908,10 @@ class FeatureExtractionAgent:
         if image_path:
             ocr_text = self.extract_image_text(image_path)
             if ocr_text:
-                text = f"{text} [Image Context: {ocr_text}]"
+                if text:
+                    text = f"{text} [Image Context: {ocr_text}]"
+                else:
+                    text = ocr_text
                 # Re-check zone if image OCR added info
                 if not detected_zone:
                     detected_zone = self.resolve_zone(None, ocr_text)
@@ -590,7 +923,9 @@ class FeatureExtractionAgent:
             media=image_path,
             nearby_place=nearby_place,
             urgency_keywords_found=urgency_found,
-            detected_zone=detected_zone
+            detected_zone=detected_zone,
+            hospital_dist=metrics["hospital_dist"],
+            major_road_dist=metrics["major_road_dist"]
         )
 
 # ==============================
@@ -721,59 +1056,253 @@ Return ONLY a JSON object in this format:
 
 
 # ==============================
-# MODULE 4 – PRIORITY BOOSTER (AGENT 4 - NEW)
+# MODULE 4 – SMART PRIORITY BOOSTER (SCENARIO MATRIX)
 # ==============================
 
 class SmartPriorityBooster:
     """
-    Agent 4: Boosts priority based on Location Type and Urgency Keywords
+    Agent 4: Calculates priority score using an Issue × Location scenario matrix.
+
+    For each issue type, different nearby locations trigger different boost weights:
+    e.g. Pothole near Hospital → CRITICAL (ambulance route at risk)
+         Garbage near School   → CRITICAL (children health hazard)
+         Stray Dogs near School → CRITICAL (child safety)
+         Water Stagnation near Hospital → CRITICAL (infection risk)
+         Street Light out near Major Road → HIGH (accident risk at night)
     """
-    def boost_priority(self, base_priority: str, location_type: str, urgency_found: bool, text: str = "") -> tuple[str, str]:
-        priority_levels = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-        # Be resilient to casing
-        current_level = priority_levels.get(base_priority.upper(), 2) 
-        
+
+    # ── Scenario Matrix: (issue_keyword, location_type) → (score_boost, reason)
+    # issue_keyword should be a lowercase substring that matches the category name
+    SCENARIO_MATRIX: List[tuple] = [
+        # ── Potholes / Road Damage ──────────────────────────────────────────
+        ("pothole",          "Hospital",       40, "Pothole blocking ambulance/emergency route"),
+        ("pothole",          "School",         35, "Pothole endangering children near school"),
+        ("pothole",          "College",        25, "Pothole on college main road"),
+        ("pothole",          "Transport Hub",  30, "Pothole disrupting public transport routes"),
+        ("pothole",          "Major Road",     35, "Pothole on primary road (high traffic)"),
+        ("pothole",          "Market",         20, "Pothole in busy market area"),
+        ("road",             "Hospital",       40, "Road damage near hospital emergency access"),
+        ("road",             "School",         35, "Road damage near school zone"),
+        ("road",             "College",        25, "Road damage near college campus"),
+        ("road",             "Major Road",     35, "Road damage on arterial route"),
+        ("road",             "Transport Hub",  30, "Road damage near transport hub"),
+
+        # ── Garbage / Waste ─────────────────────────────────────────────────
+        ("garbage",          "Hospital",       45, "Garbage near hospital: severe infection risk"),
+        ("garbage",          "School",         40, "Garbage near school: children health risk"),
+        ("garbage",          "College",        35, "Overflowing garbage near high-density student housing"),
+        ("garbage",          "Market",         25, "Garbage in market area affects food hygiene"),
+        ("garbage",          "Residential",    15, "Garbage in residential zone"),
+        ("waste",            "Hospital",       45, "Waste near hospital: biohazard risk"),
+        ("waste",            "School",         40, "Waste near school: student health risk"),
+
+        # ── Street Light ─────────────────────────────────────────────────────
+        ("street light",     "Hospital",       35, "Street light out near hospital: night emergency risk"),
+        ("street light",     "School",         30, "Street light out near school: child safety risk"),
+        ("street light",     "Major Road",     35, "Street light out on major road: accident risk"),
+        ("street light",     "Transport Hub",  30, "Street light out near bus/rail station: safety risk"),
+        ("street light",     "Market",         20, "Street light out in market: robbery/crime risk"),
+        ("light",            "Major Road",     35, "No lighting on major road: accident risk"),
+        ("light",            "Hospital",       35, "No lighting near hospital emergency zone"),
+
+        # ── Water Stagnation / Flooding ──────────────────────────────────────
+        ("water stagnation", "Hospital",       50, "Water stagnation near hospital: dengue/infection breeding ground"),
+        ("water stagnation", "School",         45, "Water stagnation near school: student health risk"),
+        ("water stagnation", "College",        35, "Water stagnation near college campus"),
+        ("water stagnation", "Major Road",     40, "Flooding on major road: traffic blockage"),
+        ("water stagnation", "Transport Hub",  35, "Flooding near transport hub: disrupts commute"),
+        ("water stagnation", "Residential",    20, "Water stagnation in residential area"),
+        ("flooding",         "Hospital",       50, "Flooding blocks hospital access: life-threatening"),
+        ("flooding",         "Major Road",     40, "Road flooding: high accident risk"),
+        ("flooding",         "School",         45, "Flooding near school: child safety risk"),
+        ("drainage",         "Hospital",       40, "Blocked drainage near hospital: infection risk"),
+        ("drainage",         "School",         35, "Blocked drainage near school zone"),
+        ("sewage",           "Hospital",       50, "Sewage overflow near hospital: severe biohazard"),
+        ("sewage",           "School",         45, "Sewage near school: serious health hazard"),
+        ("sewage",           "Residential",    25, "Sewage overflow in residential area"),
+
+        # ── Mosquito / Vector Control ────────────────────────────────────────
+        ("mosquito",         "Hospital",       40, "Mosquito menace near hospital: dengue outbreak risk"),
+        ("mosquito",         "School",         40, "Mosquito menace near school: children at dengue risk"),
+        ("mosquito",         "College",        30, "Mosquito breeding near college campus"),
+        ("college",          "Residential",    10, "Recurring issue in student housing zone"),
+
+        # ── Malls / High Footfall Commercial ──────────────────────────────
+        ("garbage",          "Mall",           35, "Garbage near mall: high-footfall hygiene risk"),
+        ("waste",            "Mall",           35, "Waste near commercial hub: public health hazard"),
+        ("sewage",           "Mall",           45, "Sewage near mall: severe biohazard in high-traffic zone"),
+        ("pothole",          "Mall",           30, "Pothole near mall entries: major traffic disruption"),
+        ("road",             "Mall",           30, "Road damage in shopping district"),
+        ("stray dog",        "Mall",           35, "Stray dogs near mall: safety risk for shoppers/families"),
+        ("mosquito",         "Mall",           35, "Vector risk in high-footfall commercial area"),
+        ("public toilet",    "Mall",           30, "Sanitation issue in busy commercial district"),
+        ("water supply",     "Mall",           30, "Water supply issue in commercial hub"),
+        ("fallen tree",      "Mall",           35, "Fallen tree near mall: public safety/traffic hazard"),
+
+        # ── Electric / Power ─────────────────────────────────────────────────
+        ("stray dog",        "Hospital",       45, "Stray dogs near hospital: risk to patients/visitors"),
+        ("stray dog",        "School",         50, "Stray dogs near school: CRITICAL child safety risk"),
+        ("stray dog",        "College",        35, "Stray dogs near college campus"),
+        ("stray dog",        "Transport Hub",  35, "Stray dogs near bus/rail station: commuter safety"),
+        ("stray dog",        "Major Road",     30, "Stray dogs on major road: accident risk"),
+        ("stray dog",        "Residential",    20, "Stray dogs in residential area"),
+        ("dog",              "School",         50, "Dogs near school: children at bite/attack risk"),
+        ("dog",              "Hospital",       45, "Dogs near hospital: patient/staff risk"),
+
+        # ── Dead Animals ─────────────────────────────────────────────────────
+        ("dead animal",      "Hospital",       50, "Dead animal near hospital: severe infection/biohazard"),
+        ("dead animal",      "School",         45, "Dead animal near school: health hazard for children"),
+        ("dead animal",      "Market",         35, "Dead animal in market: food contamination risk"),
+        ("dead animal",      "Residential",    25, "Dead animal in residential area: health risk"),
+        ("carcass",          "Hospital",       50, "Carcass near hospital: severe biohazard"),
+        ("carcass",          "School",         45, "Carcass near school: children health risk"),
+
+        # ── Fallen Tree ──────────────────────────────────────────────────────
+        ("fallen tree",      "Hospital",       45, "Fallen tree blocking hospital access route"),
+        ("fallen tree",      "School",         40, "Fallen tree near school: child safety hazard"),
+        ("fallen tree",      "Major Road",     40, "Fallen tree on major road: traffic blockage"),
+        ("fallen tree",      "Transport Hub",  35, "Fallen tree near transport hub: service disruption"),
+        ("tree",             "Major Road",     40, "Tree on major road: serious accident risk"),
+        ("tree",             "Hospital",       45, "Tree blocking hospital entry: emergency risk"),
+
+        # ── Public Toilet / Sanitation ───────────────────────────────────────
+        ("public toilet",    "Hospital",       35, "Unsanitary toilet near hospital: infection risk"),
+        ("public toilet",    "School",         40, "Broken/dirty toilet near school: student hygiene risk"),
+        ("public toilet",    "Market",         25, "Public toilet issue in market area"),
+        ("toilet",           "School",         40, "Toilet issue near school: student health impact"),
+        ("toilet",           "Hospital",       35, "Toilet issue near hospital facility"),
+
+        # ── Water Supply ─────────────────────────────────────────────────────
+        ("water supply",     "Hospital",       50, "No water supply to hospital: critical patient care risk"),
+        ("water supply",     "School",         40, "No water in school: student welfare emergency"),
+        ("water supply",     "Residential",    25, "Water supply disruption in residential zone"),
+        ("no water",         "Hospital",       50, "No water at hospital: life-threatening situation"),
+        ("no water",         "School",         40, "No water at school: hygiene emergency"),
+
+        # ── Electric / Power ─────────────────────────────────────────────────
+        ("power cut",        "Hospital",       55, "Power cut at hospital: life support risk"),
+        ("electricity",      "Hospital",       50, "Electricity failure near hospital: patient risk"),
+        ("power",            "Hospital",       50, "Power failure near hospital: critical equipment risk"),
+        ("power cut",        "School",         30, "Power cut disrupting school operations"),
+    ]
+
+    def _get_scenario_boost(self, issue_type: str, location_type: str) -> tuple[int, str]:
+        """Look up the scenario matrix for the best matching (issue, location) combination."""
+        issue_lower = issue_type.lower() if issue_type else ""
+        best_boost = 0
+        best_reason = ""
+
+        for (issue_kw, loc_type, boost, reason) in self.SCENARIO_MATRIX:
+            if issue_kw in issue_lower and loc_type == location_type:
+                if boost > best_boost:
+                    best_boost = boost
+                    best_reason = reason
+
+        return best_boost, best_reason
+
+    def boost_priority(self,
+                       base_priority: str,
+                       location_type: str,
+                       urgency_found: bool,
+                       text: str = "",
+                       hospital_dist: float = 10.0,
+                       major_road_dist: float = 10.0,
+                       density: int = 0,
+                       frequency: int = 0,
+                       issue_type: str = "General") -> tuple[str, str, float]:
+        """
+        Compute priority score using:
+        1. Scenario matrix (issue × nearby location type)
+        2. GPS-measured distances to hospitals and major roads
+        3. Nearby complaint density and historical frequency
+        4. Urgency keywords in description
+        """
+        priority_levels = {"LOW": 25, "MEDIUM": 50, "HIGH": 75, "CRITICAL": 100}
+        score = float(priority_levels.get(base_priority.upper(), 50))
         reasons = []
 
-        # Rule 1: Boost for Location Type
-        if location_type == "Hospital":
-            current_level = 4 # Force Critical
-            reasons.append("Near Hospital")
-        elif location_type == "School":
-            current_level = min(current_level + 2, 4) # +2 boost
-            reasons.append("Near School")
-        elif location_type == "College":
-            current_level = min(current_level + 1, 4) # +1 boost
-            reasons.append("Near College")
-        elif location_type == "Transport Hub":
-            current_level = min(current_level + 1, 4) # +1 boost
-            reasons.append("Near Transport Hub")
-        elif location_type == "Market":
-            current_level = min(current_level + 1, 4) # +1 boost
-            reasons.append("Near Market/Shopping Area")
+        # ── 1. Scenario Matrix Boost (issue type × location type) ──────────
+        scenario_boost, scenario_reason = self._get_scenario_boost(issue_type, location_type)
+        if scenario_boost > 0:
+            score += scenario_boost
+            reasons.append(scenario_reason)
+            logger.info(f"[SCENARIO] {issue_type} × {location_type} → +{scenario_boost} | {scenario_reason}")
 
-        # Rule 2: Boost for Urgency Keywords
+        # ── 2. GPS distance to nearest hospital (real Overpass data) ────────
+        if hospital_dist < 0.3:
+            # Very close — even without scenario match
+            extra = 30 if scenario_boost == 0 else 10  # avoid double-counting
+            score += extra
+            reasons.append(f"Within {hospital_dist:.2f}km of hospital")
+        elif hospital_dist < 0.5 and scenario_boost == 0:
+            score += 20
+            reasons.append(f"Near hospital ({hospital_dist:.2f}km)")
+
+        # ── 3. GPS distance to nearest major road (Overpass data) ────────────
+        if major_road_dist < 0.3:
+            extra = 20 if scenario_boost == 0 else 5
+            score += extra
+            reasons.append(f"On/near major road ({major_road_dist:.2f}km)")
+
+        # ── 4. School / College proximity (Overpass data) ────────────────────
+        if location_type == "School" and scenario_boost == 0:
+            score += 25
+            reasons.append("Near school (children safety)")
+        elif location_type == "College" and scenario_boost == 0:
+            score += 15
+            reasons.append("Near college campus")
+        elif location_type == "Transport Hub" and scenario_boost == 0:
+            score += 15
+            reasons.append("Near transport hub")
+
+        # ── 5. Complaint density in the area ────────────────────────────────
+        if density > 10:
+            score += 20
+            reasons.append(f"Very high density: {density} complaints nearby")
+        elif density > 5:
+            score += 12
+            reasons.append(f"High density: {density} complaints nearby")
+        elif density > 2:
+            score += 6
+            reasons.append(f"Moderate density: {density} complaints nearby")
+
+        # ── 6. Historical recurrence ──────────────────────────────────────────
+        if frequency > 10:
+            score += 12
+            reasons.append(f"Recurring issue (reported {frequency}x in this zone)")
+        elif frequency > 5:
+            score += 6
+            reasons.append(f"Known recurring issue ({frequency} prior reports)")
+
+        # ── 7. Urgency keywords ───────────────────────────────────────────────
         if urgency_found:
-            current_level = 4
-            reasons.append("Emergency Keywords Detected")
+            score += 25
+            reasons.append("Emergency keywords detected")
 
-        # Rule 3: Explicit Text Keyword Scan for Sensitive Zones
+        # ── 8. Critical safety text keywords ─────────────────────────────────
         text_lower = text.lower()
-        sensitive_keywords = ["school", "college", "residential", "hospital", "kids", "public safety"]
-        if any(k in text_lower for k in sensitive_keywords):
-            # If the user explicitly mentions a sensitive area, force critical if it's an infrastructure issue
-            current_level = 4
-            
-            # Identify which keyword caused the trigger to build a descriptive reason
-            triggered_keywords = [k for k in sensitive_keywords if k in text_lower]
-            reasons.append(f"Sensitive Zone Mentioned ({', '.join(triggered_keywords)})")
+        if any(kw in text_lower for kw in ["accident", "ambulance", "death", "fire", "collapse"]):
+            score += 25
+            reasons.append("Life-threatening keywords detected")
+        elif any(kw in text_lower for kw in ["danger", "unsafe", "injury", "blocked"]):
+            score += 12
+            reasons.append("Safety hazard mentioned")
 
-        # Determine Final Priority
-        level_to_priority = {1: "LOW", 2: "MEDIUM", 3: "HIGH", 4: "CRITICAL"}
-        final_priority = level_to_priority.get(current_level, "MEDIUM")
-        
+        # ── Cap at 100 ────────────────────────────────────────────────────────
+        final_score = min(score, 100.0)
+
+        if final_score >= 85:
+            final_prio = "CRITICAL"
+        elif final_score >= 65:
+            final_prio = "HIGH"
+        elif final_score >= 40:
+            final_prio = "MEDIUM"
+        else:
+            final_prio = "LOW"
+
         reason_str = ", ".join(reasons) if reasons else "Standard Assessment"
-        return final_priority, reason_str
+        logger.info(f"[PRIORITY] {issue_type} @ {location_type}: score={final_score:.1f} → {final_prio}")
+        return final_prio, reason_str, final_score
 
 
 # ==============================
@@ -933,6 +1462,7 @@ class CivicAIAgentSystem:
             eta=final_state["dispatch"]["ETA"],
             location_insight=final_state["insight"],
             detected_zone=final_state.get("detected_zone"),
+            priority_score=int(final_state.get("priority_score", 0)),
             transcribed_text=final_state.get("final_text")
         )
 

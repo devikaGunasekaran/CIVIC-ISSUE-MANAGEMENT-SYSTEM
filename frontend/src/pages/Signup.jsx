@@ -13,6 +13,7 @@ function Signup() {
     const [phoneNumber, setPhoneNumber] = React.useState('');
     const [otp, setOtp] = React.useState('');
     const [isOtpSent, setIsOtpSent] = React.useState(false);
+    const [isLoading, setIsLoading] = React.useState(false);
     const navigate = useNavigate();
     const { t } = useTranslation();
 
@@ -60,18 +61,31 @@ function Signup() {
         }
     };
 
+    const [successMsg, setSuccessMsg] = React.useState('');
+    const [errorMsg, setErrorMsg] = React.useState('');
+
     const handleSignup = async (e) => {
         e.preventDefault();
+        setSuccessMsg('');
+        setErrorMsg('');
+        setIsLoading(true);
         try {
             await api.post('/auth/signup', { username, email, password });
-            navigate('/login');
+            setSuccessMsg("Account created successfully! Redirecting...");
+            setTimeout(() => {
+                navigate('/login');
+            }, 1500);
         } catch (error) {
             console.error('Signup failed:', error);
+            const msg = error.response?.data?.detail || 'Signup failed (Is the backend running?).';
+            setErrorMsg(msg);
+        } finally {
+            setIsLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-white flex overflow-hidden">
+        <div className="min-h-screen bg-white flex overflow-y-auto">
             <div className="hidden lg:flex lg:w-1/2 bg-primary p-16 flex-col justify-between relative overflow-hidden text-white">
                 <div className="absolute top-0 right-0 -mr-24 -mt-24 w-96 h-96 bg-white/5 rounded-full"></div>
                 <div className="absolute bottom-0 left-0 -ml-24 -mb-24 w-96 h-96 bg-white/5 rounded-full"></div>
@@ -104,7 +118,7 @@ function Signup() {
                 </div>
             </div>
 
-            <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24 bg-white relative">
+            <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24 bg-white relative overflow-y-auto">
                 <div className="absolute top-8 right-8">
                     <LanguageSelector />
                 </div>
@@ -114,6 +128,19 @@ function Signup() {
                         <h1 className="text-4xl font-bold text-secondary tracking-tight">{t('signup.title')}</h1>
                         <p className="text-secondary/60 font-medium">{t('signup.signupHint')}</p>
                     </div>
+
+                    {successMsg && (
+                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl relative flex items-center gap-3 animate-fade-in-up">
+                            <ShieldCheck size={20} className="text-green-500" />
+                            <span className="font-bold text-sm tracking-wide">{successMsg}</span>
+                        </div>
+                    )}
+
+                    {errorMsg && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl relative flex items-center gap-3 animate-fade-in-up">
+                            <span className="font-bold text-sm tracking-wide">{errorMsg}</span>
+                        </div>
+                    )}
 
                     {signupMode === 'standard' ? (
                         <form onSubmit={handleSignup} className="space-y-5">
@@ -169,9 +196,13 @@ function Signup() {
                             </div>
 
                             <div className="pt-4">
-                                <button type="submit" className="btn-primary w-full h-14 text-lg flex items-center justify-center gap-2 group shadow-lg">
-                                    {t('signup.submit')}
-                                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                                <button
+                                    type="submit"
+                                    disabled={isLoading}
+                                    className={`btn-primary w-full h-14 text-lg flex items-center justify-center gap-2 group shadow-lg ${isLoading ? 'opacity-70' : ''}`}
+                                >
+                                    {isLoading ? 'Creating Account...' : t('signup.submit')}
+                                    {!isLoading && <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />}
                                 </button>
                             </div>
                         </form>

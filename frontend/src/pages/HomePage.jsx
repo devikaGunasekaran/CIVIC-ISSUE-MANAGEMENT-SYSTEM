@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Shield, Zap, BarChart3, Clock, CheckCircle2, Facebook, Phone } from 'lucide-react';
+import { ArrowRight, Shield, Zap, BarChart3, Clock, CheckCircle2, Facebook, Phone, Megaphone, Search } from 'lucide-react';
 import api from '../api';
 
 function HomePage() {
@@ -52,10 +52,12 @@ function HomePage() {
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4 pt-4 text-center">
                             <Link to="/report" className="btn-primary flex items-center justify-center gap-2 group">
+                                <Megaphone size={20} className="group-hover:-rotate-12 transition-transform" />
                                 {t('home.reportIssue')}
                                 <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
                             </Link>
-                            <Link to="/track" className="btn-outline">
+                            <Link to="/track" className="btn-outline flex items-center justify-center gap-2">
+                                <Search size={20} />
                                 {t('home.trackStatus')}
                             </Link>
                         </div>

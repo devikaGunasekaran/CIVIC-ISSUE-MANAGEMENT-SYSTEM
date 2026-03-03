@@ -1,7 +1,10 @@
 """
 Chennai Important Locations Database
-Used by AI Agents to detect if a complaint is near critical infrastructure.
-This acts as a local fallback for Google Maps API.
+Used ONLY for zone name resolution (matching a GPS location to a GCC Zone name).
+
+NOTE: Hospitals, schools, and major roads are NO LONGER hardcoded here.
+They are queried LIVE from OpenStreetMap Overpass API in FeatureExtractionAgent,
+giving real-world accuracy based on the user's actual GPS pin.
 """
 
 CHENNAI_IMPORTANT_LOCATIONS = {
@@ -38,7 +41,8 @@ CHENNAI_IMPORTANT_LOCATIONS = {
         {"name": "Chennai Egmore Station", "lat": 13.0780, "lon": 80.2600, "radius": 0.4, "type": "Transport Hub"},
         {"name": "Chennai International Airport", "lat": 12.9940, "lon": 80.1710, "radius": 1.2, "type": "Transport Hub"},
         {"name": "Guindy Metro & Rail Station", "lat": 13.0070, "lon": 80.2200, "radius": 0.4, "type": "Transport Hub"},
-        {"name": "T. Nagar Bus Terminus", "lat": 13.0330, "lon": 80.2330, "radius": 0.4, "type": "Transport Hub"}
+        {"name": "T. Nagar Bus Terminus", "lat": 13.0330, "lon": 80.2330, "radius": 0.4, "type": "Transport Hub"},
+        {"name": "Kilambakkam Bus Terminus (KCBT)", "lat": 12.8725, "lon": 80.0768, "radius": 0.8, "type": "Transport Hub"}
     ],
 
     "markets": [

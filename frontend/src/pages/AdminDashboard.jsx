@@ -40,17 +40,24 @@ function AdminDashboard() {
             }
         }
         fetchComplaints();
+
+        // Auto-poll every 10 seconds to keep the dashboard live
+        const pollInterval = setInterval(() => {
+            fetchComplaints(false); // pass flag to hide loading spinner on poll
+        }, 10000);
+
+        return () => clearInterval(pollInterval);
     }, []);
 
-    const fetchComplaints = async () => {
+    const fetchComplaints = async (showLoading = true) => {
         try {
-            setLoading(true);
+            if (showLoading) setLoading(true);
             const response = await api.get('/complaints/');
             setComplaints(response.data);
         } catch (error) {
             showNotification(t('common.error'), 'error');
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
@@ -306,6 +313,7 @@ function AdminDashboard() {
                         <thead>
                             <tr className="border-b border-earth/5">
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] text-earth/20">{t('admin.complaintNum')}</th>
+                                <th className="px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] text-earth/20">Reporter</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] text-earth/20">{t('admin.details')}</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] text-earth/20">{t('admin.geography')}</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] text-earth/20">{t('admin.priority')}</th>
@@ -335,6 +343,17 @@ function AdminDashboard() {
                                     <tr key={c.id} className="group hover:bg-green-50/20 transition-all">
                                         <td className="px-6 py-6">
                                             <span className="text-sm font-mono font-bold text-primary italic">#{c.id}</span>
+                                        </td>
+                                        <td className="px-6 py-6">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-xs font-bold text-gray-500">
+                                                    {(c.reporter_user?.username || c.citizen?.username)?.charAt(0).toUpperCase() || 'C'}
+                                                </div>
+                                                <span className="text-xs font-bold text-secondary">
+                                                    {(c.reporter_user?.username || c.citizen?.username) || 'Anonymous'}
+                                                    <span className="text-[10px] text-gray-400 font-mono ml-1">(UID: {c.user_id})</span>
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-6">
                                             <div className="space-y-1">
@@ -432,6 +451,19 @@ function AdminDashboard() {
                                         </div>
                                     </div>
                                     <div className="space-y-2">
+                                        <label className="text-xs font-bold uppercase tracking-widest text-earth/30">Citizen / Reporter</label>
+                                        <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 flex items-center gap-4">
+                                            <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg">
+                                                {(selectedComplaint.reporter_user?.username || selectedComplaint.citizen?.username)?.charAt(0).toUpperCase() || 'C'}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-secondary">{selectedComplaint.reporter_user?.username || selectedComplaint.citizen?.username || 'Anonymous'}</p>
+                                                <p className="text-[10px] text-earth/40 font-mono">{selectedComplaint.reporter_user?.email || selectedComplaint.citizen?.email || 'No email provided'}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
                                         <label className="text-xs font-bold uppercase tracking-widest text-gray-400">{t('admin.citizenDescription')}</label>
                                         <p className="text-sm text-gray-600 leading-relaxed italic border-l-2 border-primary/20 pl-4">
                                             "{selectedComplaint.description || 'No digital metadata provided by citizen.'}"
@@ -469,12 +501,32 @@ function AdminDashboard() {
                                     </div>
 
                                     <div className="pt-6 border-t border-earth/10 space-y-4">
-                                        <p className="text-xs text-earth/30 italic">{t('admin.aiInsightLabel')}</p>
-                                        <div className="p-4 bg-white rounded-2xl shadow-sm border border-green-50 flex items-start gap-3">
-                                            <Sparkles size={16} className="text-primary shrink-0 mt-0.5" />
-                                            <p className="text-xs font-medium text-secondary leading-relaxed uppercase tracking-tighter">
-                                                {selectedComplaint.ai_insight || 'Cross-referencing historical infrastructure health records for this zone.'}
-                                            </p>
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs text-earth/30 font-bold uppercase tracking-widest">{t('admin.aiInsightLabel')}</p>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold text-gray-400">AI Priority Score:</span>
+                                                <span className="text-[10px] font-black text-primary">{selectedComplaint.priority_score || 0}/100</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedComplaint.ai_insight ? (
+                                                    selectedComplaint.ai_insight.split(',').map((reason, i) => (
+                                                        <span key={i} className="px-3 py-1.5 bg-primary/5 border border-primary/10 text-primary text-[10px] font-extrabold rounded-xl flex items-center gap-2 shadow-sm transition-all hover:bg-primary/10">
+                                                            <Sparkles size={10} />
+                                                            {reason.trim()}
+                                                        </span>
+                                                    ))
+                                                ) : (
+                                                    <div className="p-4 bg-white rounded-2xl shadow-sm border border-green-50 flex items-start gap-3 w-full">
+                                                        <Loader2 size={16} className="text-primary shrink-0 mt-0.5 animate-spin" />
+                                                        <p className="text-xs font-medium text-secondary leading-relaxed uppercase tracking-tighter italic">
+                                                            {t('complaintDetail.aiInProcess')}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -602,12 +654,12 @@ function PriorityBadge({ priority, size = 'sm' }) {
 }
 
 function getPriorityStyle(priority) {
-    switch (priority) {
+    switch (priority?.toUpperCase()) {
         case 'CRITICAL': return 'bg-red-50 text-red-600 border-red-100';
         case 'HIGH': return 'bg-orange-50 text-orange-600 border-orange-100';
         case 'MEDIUM': return 'bg-amber-50 text-amber-600 border-amber-100';
-        case 'LOW': return 'bg-green-50 text-emerald-600 border-green-100';
-        default: return 'bg-white text-gray-300 border-gray-100';
+        case 'LOW': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+        default: return 'bg-gray-50 text-gray-500 border-gray-100';
     }
 }
 

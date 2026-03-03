@@ -10,6 +10,7 @@ import NotificationPage from './pages/NotificationPage';
 import AboutPage from './pages/AboutPage';
 import Sidebar from './components/Sidebar';
 import Footer from './components/Footer';
+import ChatBot from './components/ChatBot';
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
           <Footer />
         </div>
       </div>
+      <ChatBot />
     </Router>
   );
 }

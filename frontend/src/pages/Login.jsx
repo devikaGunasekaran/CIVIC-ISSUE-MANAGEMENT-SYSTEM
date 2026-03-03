@@ -59,6 +59,20 @@ function Login() {
         }
     };
 
+    const decodeToken = (token) => {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            console.error('Error decoding token:', e);
+            return null;
+        }
+    };
+
     const handleLogin = async (e) => {
         e.preventDefault();
         try {
@@ -70,26 +84,27 @@ function Login() {
             const token = response.data.access_token;
             localStorage.setItem('token', token);
 
-            try {
-                const payload = JSON.parse(atob(token.split('.')[1]));
+            const payload = decodeToken(token);
+            if (payload) {
                 const userRole = payload.role;
-
                 if (userRole === 'admin' || userRole === 'area_admin') {
                     navigate('/admin');
                 } else {
                     navigate('/report');
                 }
-            } catch (decodeError) {
-                console.error('Error decoding token:', decodeError);
-                navigate('/');
+                window.location.reload(); // Ensure everything refreshes
+            } else {
+                alert('Session creation failed. Please try again.');
             }
         } catch (error) {
             console.error('Login failed:', error);
+            const errorMsg = error.response?.data?.detail || 'Invalid username or password';
+            alert(errorMsg);
         }
     };
 
     return (
-        <div className="min-h-screen bg-white flex overflow-hidden">
+        <div className="min-h-screen bg-white flex overflow-y-auto">
             <div className="hidden lg:flex lg:w-1/2 bg-primary p-16 flex-col justify-between relative overflow-hidden text-white">
                 <div className="absolute top-0 right-0 -mr-24 -mt-24 w-96 h-96 bg-white/5 rounded-full"></div>
                 <div className="absolute bottom-0 left-0 -ml-24 -mb-24 w-96 h-96 bg-white/5 rounded-full"></div>
@@ -124,7 +139,7 @@ function Login() {
                 </div>
             </div>
 
-            <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24 bg-white relative">
+            <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24 bg-white relative overflow-y-auto">
                 <div className="absolute top-8 right-8">
                     <LanguageSelector />
                 </div>
@@ -276,13 +291,46 @@ function Login() {
                         )}
                     </div>
 
-                    <div className="text-center pt-4">
-                        <p className="text-secondary/60 font-medium">
-                            {t('login.noAccount')}{' '}
-                            <Link to="/signup" className="text-primary font-bold hover:underline">
-                                {t('login.signUp')}
-                            </Link>
+                    <div className="relative py-4">
+                        <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t border-gray-100"></span>
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-white px-4 text-gray-400 font-bold tracking-widest">Demo Login Credentials</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pb-4">
+                        <button
+                            type="button"
+                            onClick={() => { setUsername('citizen1'); setPassword('user123'); }}
+                            className="text-[10px] font-black uppercase tracking-tighter bg-gray-50 hover:bg-primary/10 hover:text-primary p-2 rounded-lg border border-gray-100 transition-all"
+                        >
+                            Citizen Demo
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setUsername('admin'); setPassword('admin123'); }}
+                            className="text-[10px] font-black uppercase tracking-tighter bg-gray-50 hover:bg-primary/10 hover:text-primary p-2 rounded-lg border border-gray-100 transition-all"
+                        >
+                            Admin Demo
+                        </button>
+                    </div>
+
+                    <div className="text-center pt-4 pb-12 relative z-20">
+                        <p className="text-secondary/60 font-medium mb-4">
+                            {t('login.noAccount')}
                         </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                console.log("Navigating to signup...");
+                                navigate('/signup');
+                            }}
+                            className="w-full py-4 px-6 rounded-2xl border-2 border-primary/20 text-primary font-bold hover:bg-primary hover:text-white transition-all duration-300 shadow-sm cursor-pointer"
+                        >
+                            {t('login.signUp')}
+                        </button>
                     </div>
                 </div>
             </div>
