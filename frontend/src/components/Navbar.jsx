@@ -1,16 +1,18 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Home, PlusCircle, LayoutList, Bell, Info, LogOut, Shield } from 'lucide-react';
+import { Home, PlusCircle, LayoutList, Bell, Info, LogOut, Shield, Zap } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import LanguageSelector from './LanguageSelector';
 
 function Navbar() {
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
     const [isAdmin, setIsAdmin] = useState(false);
+    const { t } = useTranslation();
 
     useEffect(() => {
         if (token) {
             try {
-                // Decode JWT token to check role
                 const payload = JSON.parse(atob(token.split('.')[1]));
                 setIsAdmin(payload.role === 'admin' || payload.role === 'area_admin');
             } catch (error) {
@@ -28,62 +30,67 @@ function Navbar() {
     };
 
     return (
-        <nav style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '20px 40px',
-            background: 'rgba(15, 23, 42, 0.8)',
-            backdropFilter: 'blur(10px)',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100
-        }}>
-            <Link to="/" style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white', textDecoration: 'none', background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                Civic<span style={{ color: 'white' }}>App</span>
+        <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 px-8 py-4 flex justify-between items-center shadow-sm">
+            <Link to="/" className="flex items-center gap-2 group">
+                <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-lg shadow-green-100 group-hover:scale-105 transition-transform">
+                    <Zap size={20} fill="currentColor" />
+                </div>
+                <span className="text-2xl font-black text-secondary tracking-tighter">
+                    {t('nav.brand')}
+                </span>
             </Link>
 
-            <div style={{ display: 'flex', gap: '30px' }}>
-                <NavLink to="/" icon={<Home size={20} />} label="Home" />
+            <div className="flex items-center gap-8">
+                <div className="hidden md:flex items-center gap-10">
+                    <CustomNavLink to="/" icon={<Home size={18} />} label={t('nav.home')} />
 
-                {/* Citizen-only links */}
-                {!isAdmin && token && (
-                    <>
-                        <NavLink to="/report" icon={<PlusCircle size={20} />} label="Report Issue" />
-                        <NavLink to="/track" icon={<LayoutList size={20} />} label="Track" />
-                        <NavLink to="/notifications" icon={<Bell size={20} />} label="Notifications" />
-                    </>
-                )}
+                    {!isAdmin && token && (
+                        <>
+                            <CustomNavLink to="/report" icon={<PlusCircle size={18} />} label={t('nav.reportIssue')} />
+                            <CustomNavLink to="/track" icon={<LayoutList size={18} />} label={t('nav.track')} />
+                        </>
+                    )}
 
-                <NavLink to="/about" icon={<Info size={20} />} label="About" />
+                    <CustomNavLink to="/about" icon={<Info size={18} />} label={t('nav.about')} />
 
-                {/* Admin-only link */}
-                {isAdmin && (
-                    <NavLink to="/admin" icon={<Shield size={20} />} label="Admin Dashboard" />
-                )}
+                    {isAdmin && (
+                        <CustomNavLink to="/admin" icon={<Shield size={18} />} label={t('nav.admin')} />
+                    )}
+                </div>
 
-                {token && (
-                    <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <LogOut size={20} /> Logout
-                    </button>
-                )}
-                {!token && (
-                    <Link to="/login" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 'bold' }}>Login</Link>
-                )}
+                <div className="flex items-center gap-6 pl-8 border-l border-gray-100">
+                    {token ? (
+                        <button
+                            onClick={handleLogout}
+                            className="flex items-center gap-2 text-gray-400 hover:text-red-500 font-bold transition-colors text-xs uppercase tracking-widest"
+                        >
+                            <LogOut size={16} />
+                            <span className="hidden sm:inline">{t('nav.logout')}</span>
+                        </button>
+                    ) : (
+                        <Link
+                            to="/login"
+                            className="text-xs font-black uppercase tracking-widest text-primary hover:text-secondary transition-colors"
+                        >
+                            {t('nav.login')}
+                        </Link>
+                    )}
+                    <LanguageSelector />
+                </div>
             </div>
         </nav>
     );
 }
 
-function NavLink({ to, icon, label }) {
+function CustomNavLink({ to, icon, label }) {
     return (
-        <Link to={to} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', textDecoration: 'none', transition: 'color 0.2s' }}>
-            {icon}
-            <span style={{ fontSize: '0.9rem' }}>{label}</span>
-            <style>{`
-        a:hover { color: #a855f7 !important; }
-      `}</style>
+        <Link
+            to={to}
+            className="flex items-center gap-2 text-secondary/60 hover:text-primary font-bold transition-all group relative py-2"
+        >
+            <span className="group-hover:scale-110 transition-transform opacity-70 group-hover:opacity-100">{icon}</span>
+            <span className="text-[10px] uppercase tracking-[0.2em]">{label}</span>
+            <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-primary transition-all group-hover:w-full"></span>
         </Link>
     );
 }

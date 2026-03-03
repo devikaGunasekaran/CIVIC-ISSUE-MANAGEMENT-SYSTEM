@@ -1,65 +1,345 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import api from '../api';
-import { MapPin, Camera, Mic, Loader2, StopCircle, Trash2, Volume2, Upload, Info, FileAudio } from 'lucide-react';
+import {
+    extractLocationFromText,
+    mapAreaToZone,
+    transcribeWithSpeechAPI,
+    runOCRPipeline,
+    fuzzyMatchCategory,
+    detectZoneFromAddress,
+    detectZoneFromAreaName,
+    forwardGeocode,
+    GCC_ZONE_MAP,
+} from '../utils/locationExtractor';
+import {
+    MapPin, Camera, Mic, Loader2, StopCircle, Trash2,
+    Upload, Info, FileAudio, FileImage,
+    ChevronRight, ChevronLeft, CheckCircle2, ShieldAlert,
+    Sparkles, Send, PenTool, Navigation, Edit3, AlertTriangle, Volume2, ScanText, LocateFixed, Search, X
+} from 'lucide-react';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
+// Fix Leaflet default marker icons (broken in Vite/Webpack builds)
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+const CHENNAI_CENTER = [13.0827, 80.2707]; // Chennai default center
+
+// ─── Map Click Handler (inner component) ──────────────────────────────────────
+function MapClickHandler({ onPick }) {
+    useMapEvents({
+        click(e) {
+            onPick(e.latlng.lat, e.latlng.lng);
+        },
+    });
+    return null;
+}
+
+// ─── Detection Banner ──────────────────────────────────────────────────────────
+function DetectionBanner({ detected, source, onAccept, onDismiss }) {
+    if (!detected || !detected.areaName) return null;
+    const sourceLabel = source === 'voice' ? '🎤 From Voice' : source === 'image' ? '🖼️ From Image' : '📝 From Text';
+    return (
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-start gap-3 animate-fade-in-up">
+            <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center shrink-0">
+                <Sparkles size={16} className="text-green-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-green-800">
+                    {sourceLabel} — Area: <span className="text-green-600">{detected.areaName}</span>
+                    {detected.landmark && <span className="text-green-600/70"> · Landmark: {detected.landmark}</span>}
+                </p>
+                <p className="text-xs text-green-600/60 mt-0.5">Location auto-detected. Accept to auto-fill fields.</p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+                <button type="button" onClick={onAccept}
+                    className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-xl hover:bg-green-700 transition-colors">
+                    Accept
+                </button>
+                <button type="button" onClick={onDismiss}
+                    className="px-3 py-1.5 bg-white text-green-700 text-xs font-bold rounded-xl border border-green-200 hover:bg-green-50 transition-colors">
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 function ReportIssue() {
+    const [step, setStep] = useState(1);
     const [description, setDescription] = useState('');
     const [location, setLocation] = useState('');
-    const [area, setArea] = useState('Ambattur'); // Default
+    const [area, setArea] = useState('');               // GCC Zone for submission
+    const [autoZone, setAutoZone] = useState(null);     // auto-detected GCC zone
+    const [zoneLoading, setZoneLoading] = useState(false);  // zone detection in progress
     const [image, setImage] = useState(null);
     const [audioFile, setAudioFile] = useState(null);
+    const [paperComplaint, setPaperComplaint] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [locationError, setLocationError] = useState('');
 
-    // Voice Recording States
+    // ── Map State ───────────────────────────────────────────────────────────
+    const [mapPin, setMapPin] = useState(null);           // { lat, lng }
+    const [mapAddress, setMapAddress] = useState('');     // Reverse geocoded address
+    const [mapLoading, setMapLoading] = useState(false);
+
+    useEffect(() => {
+        console.log('--- VOICE_PIPELINE_V3.2_ACTIVE ---');
+    }, []);
+
+    const [locationMode, setLocationMode] = useState('map'); // 'map' | 'manual'
+    const mapRef = useRef(null);
+
+    // ── Map Search State ────────────────────────────────────────────────────
+    const [mapSearchQuery, setMapSearchQuery] = useState('');
+    const [mapSearchResults, setMapSearchResults] = useState([]);
+    const [mapSearchLoading, setMapSearchLoading] = useState(false);
+    const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+    const searchDebounce = useRef(null);
+    const searchRef = useRef(null);
+
+    // ── Manual Fields ───────────────────────────────────────────────────────
+    const [manualArea, setManualArea] = useState('');
+    const [manualLandmark, setManualLandmark] = useState('');
+    const [manualPincode, setManualPincode] = useState('');
+
+    // ── Detection State ─────────────────────────────────────────────────────
+    const [detectedLocation, setDetectedLocation] = useState(null);
+    const [detectedSource, setDetectedSource] = useState(null);
+    const [detectedAccepted, setDetectedAccepted] = useState(false);
+
+    // ── Conflict ────────────────────────────────────────────────────────────
+    const [showConflictDialog, setShowConflictDialog] = useState(false);
+    const [mapAreaName, setMapAreaName] = useState('');
+
+    // ── Voice State ─────────────────────────────────────────────────────────
     const [isRecording, setIsRecording] = useState(false);
     const [audioURL, setAudioURL] = useState(null);
+    const [voiceTranscript, setVoiceTranscript] = useState('');
+    const [voiceDetecting, setVoiceDetecting] = useState(false);
+    const [voiceConfidence, setVoiceConfidence] = useState(1.0);
+    const [voiceLanguage, setVoiceLanguage] = useState('');
+
+    // ── OCR State ───────────────────────────────────────────────────────────
+    const [ocrProgress, setOcrProgress] = useState(0);
+    const [ocrRunning, setOcrRunning] = useState(false);
+    const [ocrRawText, setOcrRawText] = useState('');       // original noisy OCR output
+    const [ocrCleanedText, setOcrCleanedText] = useState(''); // cleaned, editable by user
+    const [ocrCategory, setOcrCategory] = useState(null);   // fuzzy-matched category
+    const [ocrConfidence, setOcrConfidence] = useState(0);
+    const [notification, setNotification] = useState(null); // { message, type }
+
     const mediaRecorder = useRef(null);
     const audioChunks = useRef([]);
+    const recordingStartTime = useRef(null);
+    const descriptionDebounce = useRef(null);
 
     const navigate = useNavigate();
+    const { t } = useTranslation();
 
-    const handleLocation = () => {
-        if (navigator.geolocation) {
-            setLoading(true);
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setLocation(`${position.coords.latitude}, ${position.coords.longitude}`);
-                    setLoading(false);
-                },
-                (error) => {
-                    alert('Error getting location: ' + error.message);
-                    setLoading(false);
-                }
+    const ZONES = Object.keys(GCC_ZONE_MAP);
+
+    // ── 0. Sync area state with autoZone ────────────────────────────────────
+    useEffect(() => {
+        if (autoZone) {
+            setArea(autoZone);
+        }
+    }, [autoZone]);
+
+    // ── 1. Auto-extract from typed description ──────────────────────────────
+    useEffect(() => {
+        if (descriptionDebounce.current) clearTimeout(descriptionDebounce.current);
+        descriptionDebounce.current = setTimeout(() => {
+            if (description && description.trim().length > 5) {
+                const result = extractLocationFromText(description);
+                if (result.areaName && result.confidence > 0.5) updateDetected(result, 'text');
+            }
+        }, 600);
+        return () => clearTimeout(descriptionDebounce.current);
+    }, [description]);
+
+    const updateDetected = (result, source) => {
+        if (detectedAccepted) return;
+        setDetectedLocation(result);
+        setDetectedSource(source);
+    };
+
+    const showNotification = (message, type = 'success') => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 4000);
+    };
+
+    // ── 2. Reverse geocode map pin (Nominatim — free, no API key) ──────────
+    const reverseGeocode = async (lat, lng) => {
+        setMapLoading(true);
+        try {
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+                { headers: { 'Accept-Language': 'en' } }
             );
-        } else {
-            alert('Geolocation is not supported by this browser.');
+            const data = await res.json();
+            const addr = data.address || {};
+            const parts = [
+                addr.road || addr.pedestrian || addr.footway,
+                addr.suburb || addr.neighbourhood || addr.quarter,
+                addr.city_district || addr.county,
+                addr.city || addr.town || addr.village,
+                addr.postcode
+            ].filter(Boolean);
+            const readable = parts.join(', ');
+            setMapAddress(readable);
+
+            // Auto-detect GCC zone from the full Nominatim address object
+            const detectedZone = detectZoneFromAddress(addr);
+            if (detectedZone) {
+                setAutoZone(detectedZone);
+            } else {
+                setAutoZone(null); // couldn't determine zone
+            }
+
+            // Conflict check with text-detected location
+            if (detectedAccepted && detectedLocation?.areaName) {
+                const textZone = detectZoneFromAreaName(detectedLocation.areaName);
+                if (textZone && detectedZone && textZone !== detectedZone) {
+                    setMapAreaName(detectedZone || readable);
+                    setShowConflictDialog(true);
+                }
+            }
+        } catch (err) {
+            console.warn('Reverse geocode failed:', err);
+            setMapAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        } finally {
+            setMapLoading(false);
         }
     };
 
-    // --- AUDIO RECORDING ---
+    // ── 3. Map pin drop handler ─────────────────────────────────────────────
+    const handleMapPick = (lat, lng) => {
+        setMapPin({ lat, lng });
+        setLocation(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        setLocationError('');
+        reverseGeocode(lat, lng);
+    };
+
+    // ── 4. Center map on user GPS ───────────────────────────────────────────
+    const centerOnGps = () => {
+        if (!navigator.geolocation) return;
+        setMapLoading(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const { latitude: lat, longitude: lng } = pos.coords;
+                if (mapRef.current) mapRef.current.setView([lat, lng], 17);
+                handleMapPick(lat, lng);
+                setMapLoading(false);
+            },
+            () => { setMapLoading(false); }
+        );
+    };
+
+    // ── 4b. Forward geocode search (Nominatim) ─────────────────────────────
+    const searchMapLocation = async (query) => {
+        if (!query || query.trim().length < 2) {
+            setMapSearchResults([]);
+            setShowSearchDropdown(false);
+            return;
+        }
+        setMapSearchLoading(true);
+        try {
+            // Broader search: try with query + TN first, then fallback to query + India if needed
+            const q = encodeURIComponent(query.trim() + ', Tamil Nadu, India');
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/search?q=${q}&format=json&addressdetails=1&limit=5`,
+                { headers: { 'Accept-Language': 'en' } }
+            );
+            const data = await res.json();
+            setMapSearchResults(data || []);
+            setShowSearchDropdown(data && data.length > 0);
+        } catch (err) {
+            console.warn('Search failed:', err);
+            setMapSearchResults([]);
+        } finally {
+            setMapSearchLoading(false);
+        }
+    };
+
+    const handleSearchInput = (val) => {
+        setMapSearchQuery(val);
+        if (searchDebounce.current) clearTimeout(searchDebounce.current);
+        searchDebounce.current = setTimeout(() => searchMapLocation(val), 400);
+    };
+
+    const selectSearchResult = (result) => {
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        if (mapRef.current) mapRef.current.setView([lat, lng], 16);
+        handleMapPick(lat, lng);
+        setMapSearchQuery(result.display_name.split(',').slice(0, 2).join(','));
+
+        // Ensure some area is set for submission if autoZone fails
+        const addr = result.address || {};
+        const fallbackArea = addr.suburb || addr.neighbourhood || addr.city_district || 'Chennai';
+        if (!autoZone) setArea(fallbackArea);
+
+        setShowSearchDropdown(false);
+        setMapSearchResults([]);
+    };
+
+    const clearSearch = () => {
+        setMapSearchQuery('');
+        setMapSearchResults([]);
+        setShowSearchDropdown(false);
+    };
+
+    // Voice transcription moved strictly to the background for performance.
+    // Frontend now just handles recording and file preparation.
+
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder.current = new MediaRecorder(stream);
             audioChunks.current = [];
+            recordingStartTime.current = Date.now();
 
-            mediaRecorder.current.ondataavailable = (event) => {
-                audioChunks.current.push(event.data);
+            mediaRecorder.current.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunks.current.push(e.data);
             };
 
             mediaRecorder.current.onstop = () => {
-                const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-                const url = URL.createObjectURL(audioBlob);
-                setAudioURL(url);
-                const file = new File([audioBlob], `voice_${Date.now()}.wav`, { type: 'audio/wav' });
+                const duration = (Date.now() - recordingStartTime.current) / 1000;
+                if (duration < 1.0) {
+                    showNotification(t('report.voiceTooShort'), 'error');
+                    setAudioURL(null);
+                    setAudioFile(null);
+                    setVoiceTranscript('');
+                    return;
+                }
+
+                const blob = new Blob(audioChunks.current, { type: 'audio/wav' });
+                if (blob.size === 0) {
+                    showNotification(t('report.voiceError'), 'error');
+                    return;
+                }
+
+                setAudioURL(URL.createObjectURL(blob));
+                const file = new File([blob], `voice_${Date.now()}.wav`, { type: 'audio/wav' });
                 setAudioFile(file);
+                // Transcription now happens in the background after submission!
             };
 
             mediaRecorder.current.start();
             setIsRecording(true);
         } catch (err) {
-            alert('Mic Error: ' + err.message);
+            console.error('Mic Error:', err);
+            showNotification(t('report.micError'), 'error');
         }
     };
 
@@ -67,262 +347,634 @@ function ReportIssue() {
         if (mediaRecorder.current && isRecording) {
             mediaRecorder.current.stop();
             setIsRecording(false);
-            mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+            mediaRecorder.current.stream.getTracks().forEach(t => t.stop());
         }
     };
 
-    // --- AUDIO UPLOAD ---
-    const handleAudioUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            if (!file.type.startsWith('audio/')) {
-                alert('Please upload a valid audio file.');
-                return;
+    // ── 6. Image OCR (Full Pipeline: Preprocess → OCR → Clean → Fuzzy Match) ────
+    const handlePaperComplaintUpload = async (file) => {
+        setPaperComplaint(file);
+        if (!file || !file.type.startsWith('image/')) return;
+        setOcrRunning(true);
+        setOcrProgress(0);
+        setOcrRawText('');
+        setOcrCleanedText('');
+        setOcrCategory(null);
+        setOcrConfidence(0);
+        try {
+            const { rawText, cleanedText, category, confidence, location } =
+                await runOCRPipeline(file, setOcrProgress);
+
+            setOcrRawText(rawText);
+            setOcrCleanedText(cleanedText);
+            setOcrCategory(category);
+            setOcrConfidence(confidence);
+
+            // Auto-fill description if it's empty
+            if (!description.trim() && cleanedText.trim()) {
+                setDescription(cleanedText);
             }
-            setAudioFile(file);
-            setAudioURL(URL.createObjectURL(file));
+
+            // Location detection from cleaned text
+            if (location.areaName) updateDetected(location, 'image');
+        } catch (err) {
+            console.error('OCR pipeline error:', err);
+        } finally {
+            setOcrRunning(false);
+            setOcrProgress(0);
         }
     };
 
-    const deleteAudio = () => {
-        setAudioURL(null);
-        setAudioFile(null);
+    // ── 7. Accept auto-detected location ───────────────────────────────────
+    const acceptDetectedLocation = () => {
+        if (!detectedLocation) return;
+        setDetectedAccepted(true);
+        setManualArea(detectedLocation.areaName);
+        if (detectedLocation.landmark) setManualLandmark(detectedLocation.landmark);
+        // Auto-detect GCC zone from area name
+        const zone = detectZoneFromAreaName(detectedLocation.areaName);
+        if (zone) setAutoZone(zone);
+        setLocationError('');
     };
 
+    const dismissDetection = () => { setDetectedLocation(null); setDetectedSource(null); };
+
+    // ── 8. Conflict resolution ──────────────────────────────────────────────
+    const resolveConflict = (choice) => {
+        if (choice === 'text') {
+            setLocationMode('manual');
+            setManualArea(detectedLocation.areaName);
+            if (detectedLocation.landmark) setManualLandmark(detectedLocation.landmark);
+            const zone = detectZoneFromAreaName(detectedLocation.areaName);
+            if (zone) setAutoZone(zone);
+            setMapPin(null); setLocation(''); setMapAddress('');
+        }
+        setShowConflictDialog(false);
+    };
+
+    // ── 9. Validation ───────────────────────────────────────────────────────
+    const hasLocation = () => {
+        if (locationMode === 'map' && mapPin) return true;
+        if (locationMode === 'manual' && manualArea.trim() && manualLandmark.trim()) return true;
+        if (detectedAccepted && detectedLocation?.areaName && (manualLandmark.trim() || detectedLocation?.landmark)) return true;
+        return false;
+    };
+
+    const buildFinalLocation = () => {
+        if (locationMode === 'map' && mapPin) {
+            const parts = [`${mapPin.lat.toFixed(5)}, ${mapPin.lng.toFixed(5)}`];
+            if (mapAddress) parts.push(mapAddress);
+            return parts.join(' | ');
+        }
+        const parts = [manualArea || detectedLocation?.areaName];
+        if (manualLandmark) parts.push(`Near ${manualLandmark}`);
+        if (manualPincode) {
+            const cleanPin = manualPincode.split('.')[0].replace(/\D/g, '');
+            if (cleanPin) parts.push(`PIN: ${cleanPin}`);
+        }
+        return parts.filter(Boolean).join(', ');
+    };
+
+    // ── 10. Submit ──────────────────────────────────────────────────────────
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!description && !audioFile) {
-            alert('🚨 Please provide either a Text Description or a Voice Message/File.');
-            return;
-        }
+        let finalLoc = buildFinalLocation();
+        let finalArea = area || autoZone || manualArea;
 
-        if (!location) {
-            alert('📍 Please fetch your GPS location first!');
-            return;
+        if (!hasLocation() || !finalLoc) {
+            // 1. Try to extract from text first
+            let extracted = null;
+            if (description && description.trim().length > 4) {
+                extracted = extractLocationFromText(description);
+            }
+
+            if (extracted && extracted.areaName) {
+                finalLoc = extracted.areaName;
+                if (extracted.landmark) finalLoc += `, Near ${extracted.landmark}`;
+                finalArea = detectZoneFromAreaName(extracted.areaName) || extracted.areaName;
+            } else {
+                // 2. If not in text, take current GPS location as default
+                try {
+                    setLoading(true);
+                    setLocationError('Auto-detecting current location...');
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
+                    });
+                    finalLoc = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+                    finalArea = 'Chennai';
+                } catch (err) {
+                    setLocationError('Location is required. Please enable GPS or enter manually.');
+                    setLoading(false);
+                    return;
+                }
+            }
         }
 
         try {
-            setLoading(true);
+            setLoading(true); setLocationError('');
             const formData = new FormData();
-            formData.append('description', description || "");
-            formData.append('location', location);
-            formData.append('area', area);
+            formData.append('description', description || '');
+            formData.append('location', finalLoc);
+            formData.append('area', finalArea || 'Chennai');
 
             if (image) formData.append('image', image);
             if (audioFile) formData.append('audio', audioFile);
-
-            const response = await api.post('/complaints/', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
-            navigate(`/complaint/${response.data.id}`, { state: { success: true } });
-        } catch (error) {
-            alert('Error: ' + (error.response?.data?.detail || error.message));
+            if (paperComplaint) formData.append('paper_complaint', paperComplaint);
+            const response = await api.post('/complaints/', formData);
+            navigate(`/complaint/${response.data.id}`);
+        } catch (err) {
+            console.error('Submit error:', err);
+            showNotification(err.response?.status === 401 ? 'Session expired. Please login again.' : 'Submission failed. Please try again.', 'error');
         } finally {
             setLoading(false);
         }
     };
 
+    const steps = [
+        { id: 1, title: t('report.stepDetails'), icon: <PenTool size={18} /> },
+        { id: 2, title: t('report.stepMedia'), icon: <Camera size={18} /> },
+        { id: 3, title: t('report.stepSubmit'), icon: <MapPin size={18} /> }
+    ];
+
     return (
-        <div className="form-container glass-card animate-fade-in" style={{ maxWidth: '650px', margin: '2rem auto' }}>
-            <h2 className="form-title" style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📢 Report Issue</h2>
-            <p style={{ color: '#94a3b8', marginBottom: '25px', fontSize: '0.95rem' }}>
-                Fill in the details below. Our AI Agents will automatically prioritize and route your complaint.
-            </p>
+        <div className="max-w-7xl mx-auto py-12 px-6 sm:px-12 space-y-12">
+            {/* Notification Toast */}
+            {notification && (
+                <div className={`fixed top-24 right-8 z-[2000] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-slide-in text-white font-bold ${notification.type === 'success' ? 'bg-primary' : 'bg-red-500'
+                    }`}>
+                    {notification.type === 'success' ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}
+                    <span className="max-w-xs">{notification.message}</span>
+                </div>
+            )}
 
-            <form onSubmit={handleSubmit}>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+                <h1 className="text-4xl font-extrabold text-secondary tracking-tight">{t('report.title')}</h1>
+                <p className="text-secondary/60 font-medium max-w-xl mx-auto">{t('report.subtitle')}</p>
+            </div>
 
-                {/* 1. AUDIO SECTION (RECORD OR UPLOAD) */}
-                <div className="form-group" style={{
-                    background: '#0f172a',
-                    padding: '25px',
-                    borderRadius: '16px',
-                    border: '1px solid #1e293b',
-                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.3)'
-                }}>
-                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', fontWeight: '700' }}>
-                        <Mic size={20} color="#10b981" /> Voice Description
-                    </label>
-
-                    {!audioURL ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-                            {!isRecording ? (
-                                <div style={{ display: 'flex', gap: '15px', width: '100%', justifyContent: 'center' }}>
-                                    {/* Record Button */}
-                                    <button
-                                        type="button"
-                                        onClick={startRecording}
-                                        style={{
-                                            background: 'var(--primary-gradient)',
-                                            flex: 1, height: '60px', borderRadius: '12px',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                                            border: 'none', cursor: 'pointer', fontWeight: 'bold'
-                                        }}
-                                    >
-                                        <Mic size={24} /> Record Voice
-                                    </button>
-
-                                    {/* Upload Button */}
-                                    <label style={{
-                                        background: '#1e293b', flex: 1, height: '60px', borderRadius: '12px',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                                        border: '1px solid #334155', cursor: 'pointer', fontWeight: 'bold',
-                                        color: '#94a3b8'
-                                    }}>
-                                        <Upload size={24} /> Upload File
-                                        <input type="file" hidden accept="audio/*" onChange={handleAudioUpload} />
-                                    </label>
-                                </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={stopRecording}
-                                    className="pulsing"
-                                    style={{
-                                        background: '#ef4444', width: '80px', height: '80px',
-                                        borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        border: 'none', cursor: 'pointer'
-                                    }}
-                                >
-                                    <StopCircle size={32} />
-                                </button>
-                            )}
-                            <span style={{ fontSize: '0.85rem', color: isRecording ? '#ef4444' : '#94a3b8', fontWeight: isRecording ? 'bold' : 'normal' }}>
-                                {isRecording ? 'Recording active... click to stop' : 'Help illiterate users by recording a voice message in any language'}
-                            </span>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#1e293b', padding: '12px', borderRadius: '12px' }}>
-                                <FileAudio size={24} color="#10b981" />
-                                <div style={{ flexGrow: 1, overflow: 'hidden' }}>
-                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '5px' }}>
-                                        {audioFile?.name || 'Voice Message'}
-                                    </div>
-                                    <audio src={audioURL} controls style={{ width: '100%', height: '35px' }} />
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={deleteAudio}
-                                    style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '5px' }}
-                                >
-                                    <Trash2 size={22} />
-                                </button>
+            {/* Stepper */}
+            <div className="flex items-center justify-center mb-16 relative px-4">
+                <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-gray-100 -translate-y-1/2 z-0" />
+                <div className="relative z-10 flex justify-between w-full max-w-2xl">
+                    {steps.map((s) => (
+                        <div key={s.id} className="flex flex-col items-center gap-3">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 border-2 ${step >= s.id ? 'bg-primary border-primary text-white scale-110 shadow-lg' : 'bg-white border-gray-100 text-gray-300'}`}>
+                                {step > s.id ? <CheckCircle2 size={24} /> : s.icon}
                             </div>
-                            <span style={{ fontSize: '0.75rem', color: '#10b981', textAlign: 'center' }}>
-                                ✅ Audio attached successfully
-                            </span>
+                            <span className={`text-xs font-bold uppercase tracking-widest ${step >= s.id ? 'text-secondary' : 'text-gray-300'}`}>{s.title}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="max-w-4xl mx-auto animate-fade-in-up">
+                <form onSubmit={handleSubmit} className="space-y-8">
+
+                    {/* ── STEP 1 ── */}
+                    {step === 1 && (
+                        <div className="space-y-6">
+                            <div className="bg-white rounded-3xl border border-gray-100 shadow-soft p-8 space-y-6">
+                                <label className="flex items-center gap-2 text-lg font-bold text-secondary">
+                                    <Mic size={22} className="text-primary" />{t('report.voiceDescription')}
+                                </label>
+                                {!audioURL ? (
+                                    <div className="space-y-4">
+                                        <div className="flex flex-col sm:flex-row gap-4">
+                                            <button type="button" onClick={isRecording ? stopRecording : startRecording}
+                                                className={`flex-1 h-20 rounded-2xl flex items-center justify-center gap-4 font-bold text-lg transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse shadow-lg' : 'bg-gray-50 text-primary hover:bg-gray-100'}`}>
+                                                {isRecording ? <StopCircle size={32} /> : <Mic size={32} />}
+                                                {isRecording ? t('report.recordingActive') : t('report.recordVoice')}
+                                            </button>
+                                            <div className="relative flex-1">
+                                                <input type="file" id="audio-upload" accept="audio/*" hidden
+                                                    onChange={(e) => { const f = e.target.files[0]; if (f) { setAudioFile(f); setAudioURL(URL.createObjectURL(f)); } }} />
+                                                <label htmlFor="audio-upload"
+                                                    className="flex h-20 w-full items-center justify-center gap-4 bg-white border-2 border-dashed border-gray-200 text-gray-400 rounded-2xl cursor-pointer hover:border-primary hover:text-primary transition-all font-bold">
+                                                    <Upload size={28} />{t('report.uploadFile')}
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <p className="text-center text-xs text-earth/30 font-bold uppercase tracking-tight italic">{t('report.supportedFormats')}</p>
+                                    </div>
+                                ) : (
+                                    <div className="bg-gray-50 p-6 rounded-2xl flex items-center gap-6 border border-gray-100">
+                                        <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-primary"><FileAudio size={24} /></div>
+                                        <div className="flex-1 space-y-2">
+                                            <p className="text-sm font-bold text-secondary truncate">{audioFile?.name || t('report.voiceDescription')}</p>
+                                            <audio src={audioURL} controls className="w-full h-8" />
+                                        </div>
+                                        <button type="button" onClick={() => { setAudioURL(null); setAudioFile(null); setVoiceTranscript(''); }}
+                                            className="p-2 text-red-400 hover:text-red-500 transition-colors"><Trash2 size={24} /></button>
+                                    </div>
+                                )}
+                                {audioURL && (
+                                    <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex items-center gap-3 animate-pulse">
+                                        <div className="w-8 h-8 bg-primary/20 rounded-full flex items-center justify-center text-primary">
+                                            <Sparkles size={16} />
+                                        </div>
+                                        <p className="text-xs font-bold text-primary">
+                                            Audio recorded. AI will transcribe and analyze this in the background after submission.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="bg-white rounded-3xl border border-gray-100 shadow-soft p-8 space-y-4">
+                                <label className="text-lg font-bold text-secondary">{t('report.writtenDetails')}</label>
+                                <textarea rows="5" placeholder={t('report.writtenPlaceholder')} value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    className="form-input text-lg leading-relaxed resize-none p-6 w-full" />
+                            </div>
+
+                            {/* ── Paper Complaint Upload + OCR ── */}
+                            <div className="bg-white rounded-3xl border border-gray-100 shadow-soft p-8 space-y-5">
+                                <div className="flex items-center gap-2 text-lg font-bold text-secondary">
+                                    <FileImage size={22} className="text-earth" />{t('report.paperComplaint')}
+                                    <span className="ml-auto text-xs font-medium text-earth/40 normal-case">(Optional)</span>
+                                </div>
+                                <div className="relative h-52 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-earth/10 bg-accent/20 overflow-hidden group">
+                                    {paperComplaint ? (
+                                        <>
+                                            <img src={URL.createObjectURL(paperComplaint)} className="w-full h-full object-cover" alt="Doc Preview" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                <button onClick={() => { setPaperComplaint(null); setOcrRawText(''); setOcrCleanedText(''); setOcrCategory(null); }} className="p-4 bg-red-500 rounded-full text-white shadow-xl"><Trash2 size={28} /></button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <label className="flex flex-col items-center gap-4 cursor-pointer text-earth/20 hover:text-primary transition-colors px-10 text-center">
+                                            <div className="w-20 h-20 bg-white rounded-[2rem] shadow-premium flex items-center justify-center"><Upload size={32} /></div>
+                                            <span className="font-bold text-sm tracking-widest uppercase italic leading-tight">{t('report.dropScan')}</span>
+                                            <input type="file" hidden accept="image/*" onChange={(e) => e.target.files[0] && handlePaperComplaintUpload(e.target.files[0])} />
+                                        </label>
+                                    )}
+                                </div>
+                                {ocrRunning && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-earth/50">
+                                            <ScanText size={14} className="animate-pulse text-primary" /> Reading document... {ocrProgress}%
+                                        </div>
+                                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                            <div className="h-full bg-primary transition-all duration-300" style={{ width: `${ocrProgress}%` }} />
+                                        </div>
+                                    </div>
+                                )}
+                                {ocrCleanedText && !ocrRunning && (
+                                    <div className="space-y-4">
+                                        {ocrCategory && (
+                                            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold ${ocrConfidence > 0.5 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                                                <Sparkles size={13} />
+                                                AI Detected: <span className="font-extrabold">{ocrCategory}</span>
+                                                <span className="ml-auto text-[10px] opacity-70">~{Math.round(ocrConfidence * 100)}% confidence</span>
+                                            </div>
+                                        )}
+                                        <div className="space-y-1">
+                                            <p className="text-xs font-bold text-earth/40 uppercase tracking-widest flex items-center gap-1">
+                                                <ScanText size={12} /> Extracted Text — edit below if needed:
+                                            </p>
+                                            <textarea
+                                                rows={4}
+                                                value={ocrCleanedText}
+                                                onChange={(e) => {
+                                                    setOcrCleanedText(e.target.value);
+                                                    const { category, confidence } = fuzzyMatchCategory(e.target.value);
+                                                    setOcrCategory(category);
+                                                    setOcrConfidence(confidence);
+                                                }}
+                                                className="form-input text-sm text-secondary leading-relaxed resize-none p-4 w-full border-blue-200 focus:border-blue-400"
+                                            />
+                                            <div className="flex gap-2">
+                                                <button type="button"
+                                                    onClick={() => setDescription(ocrCleanedText)}
+                                                    className="px-4 py-1.5 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/90 transition-colors">
+                                                    <CheckCircle2 size={14} className="inline mr-1 -mt-0.5" /> Use as Complaint Description
+                                                </button>
+                                                {ocrRawText !== ocrCleanedText && (
+                                                    <button type="button"
+                                                        onClick={() => setOcrCleanedText(ocrRawText)}
+                                                        className="px-4 py-1.5 bg-gray-100 text-gray-500 text-xs font-bold rounded-xl hover:bg-gray-200 transition-colors">
+                                                        ↩ Show Raw OCR
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <DetectionBanner detected={detectedLocation} source={detectedSource}
+                                onAccept={acceptDetectedLocation} onDismiss={dismissDetection} />
+
+                            {detectedAccepted && (
+                                <div className="bg-green-50 border border-green-200 rounded-2xl p-3 flex items-center gap-3">
+                                    <CheckCircle2 size={16} className="text-green-600" />
+                                    <p className="text-sm font-bold text-green-700">Location set: {manualArea}{manualLandmark && ` · Near ${manualLandmark}`}</p>
+                                    <button type="button" onClick={() => { setDetectedAccepted(false); setManualArea(''); setManualLandmark(''); }}
+                                        className="ml-auto text-xs text-green-600 font-bold underline">Change</button>
+                                </div>
+                            )}
                         </div>
                     )}
-                </div>
 
-                <div style={{ textAlign: 'center', margin: '15px 0', color: '#475569', fontSize: '0.8rem', fontWeight: 'bold' }}>OR</div>
-
-                {/* 2. TEXT DESCRIPTION (OPTIONAL) */}
-                <div className="form-group">
-                    <label className="form-label">Written Details (Optional)</label>
-                    <textarea
-                        rows="3"
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        placeholder="Add additional details if needed..."
-                        style={{ background: '#0f172a', border: '1px solid #1e293b' }}
-                    />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    {/* 3. LOCATION */}
-                    <div className="form-group">
-                        <label className="form-label">GPS Location</label>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <input
-                                type="text"
-                                value={location}
-                                readOnly
-                                placeholder="Detect GPS"
-                                style={{ margin: 0, background: '#0f172a', fontSize: '0.85rem' }}
-                            />
-                            <button
-                                type="button"
-                                onClick={handleLocation}
-                                className="secondary-action"
-                                style={{ padding: '0 12px', height: '48px' }}
-                            >
-                                {loading ? <Loader2 className="animate-spin" /> : <MapPin size={20} />}
-                            </button>
+                    {/* ── STEP 2 ── */}
+                    {step === 2 && (
+                        <div className="space-y-8 animate-fade-in-up">
+                            <div className="glass-card p-8 bg-white/40 border-earth/10 space-y-6">
+                                <div className="flex items-center gap-2 text-lg font-bold text-secondary">
+                                    <Camera size={22} className="text-primary" />{t('report.siteEvidence')}
+                                </div>
+                                <div className="relative h-64 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-earth/20 bg-accent/30 overflow-hidden group">
+                                    {image ? (
+                                        <>
+                                            <img src={URL.createObjectURL(image)} className="w-full h-full object-cover" alt="Preview" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                <button onClick={() => setImage(null)} className="p-4 bg-red-500 rounded-full text-white shadow-xl"><Trash2 size={28} /></button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <label className="flex flex-col items-center gap-4 cursor-pointer text-earth/20 hover:text-primary transition-colors">
+                                            <div className="w-20 h-20 bg-white rounded-[2rem] shadow-premium flex items-center justify-center"><Camera size={40} /></div>
+                                            <span className="font-bold text-sm tracking-widest uppercase">{t('report.clickToCapture')}</span>
+                                            <input type="file" hidden accept="image/*" onChange={(e) => setImage(e.target.files[0])} />
+                                        </label>
+                                    )}
+                                </div>
+                            </div>
+                            <DetectionBanner detected={detectedLocation} source={detectedSource}
+                                onAccept={acceptDetectedLocation} onDismiss={dismissDetection} />
                         </div>
+                    )}
+
+                    {/* ── STEP 3: Location with Map ── */}
+                    {step === 3 && (
+                        <div className="space-y-8 animate-fade-in-up">
+                            <div className="glass-card p-8 bg-white/40 border-earth/10 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-lg font-bold text-secondary">
+                                        <MapPin size={22} className="text-primary" />
+                                        Location <span className="text-red-500 text-sm">*</span>
+                                    </div>
+                                    {/* Mode toggle */}
+                                    <div className="flex gap-2 text-xs font-bold rounded-xl overflow-hidden border border-gray-100">
+                                        <button type="button" onClick={() => setLocationMode('map')}
+                                            className={`px-4 py-2 transition-all ${locationMode === 'map' ? 'bg-primary text-white' : 'bg-white text-gray-400 hover:text-primary'}`}>
+                                            🗺️ Map
+                                        </button>
+                                        <button type="button" onClick={() => setLocationMode('manual')}
+                                            className={`px-4 py-2 transition-all ${locationMode === 'manual' ? 'bg-primary text-white' : 'bg-white text-gray-400 hover:text-primary'}`}>
+                                            ✏️ Manual
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* ── MAP MODE ── */}
+                                {locationMode === 'map' && (
+                                    <div className="space-y-4">
+                                        <p className="text-xs text-earth/40 font-bold uppercase tracking-widest">
+                                            Search for a location or click on the map to drop a pin
+                                        </p>
+
+                                        {/* ── Map Search Box ── */}
+                                        <div className="relative" ref={searchRef}>
+                                            <div className="flex gap-2">
+                                                <div className="relative flex-1">
+                                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-earth/40" />
+                                                    <input
+                                                        type="text"
+                                                        value={mapSearchQuery}
+                                                        onChange={(e) => handleSearchInput(e.target.value)}
+                                                        placeholder="Search area, street, landmark in Chennai..."
+                                                        className="form-input h-11 pl-9 pr-10 text-sm w-full"
+                                                    />
+                                                    {mapSearchQuery && (
+                                                        <button type="button" onClick={clearSearch}
+                                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-earth/40 hover:text-earth/70 transition-colors">
+                                                            <X size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <button type="button"
+                                                    onClick={() => searchMapLocation(mapSearchQuery)}
+                                                    disabled={mapSearchLoading || !mapSearchQuery.trim()}
+                                                    className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center gap-1.5">
+                                                    {mapSearchLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                                                    Find
+                                                </button>
+                                            </div>
+
+                                            {/* Dropdown results */}
+                                            {showSearchDropdown && mapSearchResults.length > 0 && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[1000] overflow-hidden">
+                                                    {mapSearchResults.map((result, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={() => selectSearchResult(result)}
+                                                            className="w-full text-left px-4 py-3 hover:bg-primary/5 transition-colors border-b border-gray-50 last:border-0 flex items-start gap-3"
+                                                        >
+                                                            <MapPin size={14} className="text-primary shrink-0 mt-0.5" />
+                                                            <div className="min-w-0">
+                                                                <p className="text-sm font-bold text-secondary truncate">
+                                                                    {result.display_name.split(',').slice(0, 2).join(',')}
+                                                                </p>
+                                                                <p className="text-[10px] text-earth/40 truncate">
+                                                                    {result.display_name.split(',').slice(2, 5).join(',')}
+                                                                </p>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Map Container */}
+                                        <div className="rounded-2xl overflow-hidden border-2 border-earth/10 shadow-soft" style={{ height: '340px' }}>
+                                            <MapContainer
+                                                center={CHENNAI_CENTER}
+                                                zoom={12}
+                                                style={{ height: '100%', width: '100%' }}
+                                                ref={mapRef}
+                                            >
+                                                <TileLayer
+                                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                                />
+                                                <MapClickHandler onPick={handleMapPick} />
+                                                {mapPin && (
+                                                    <Marker position={[mapPin.lat, mapPin.lng]} />
+                                                )}
+                                            </MapContainer>
+                                        </div>
+
+                                        {/* Use My Location button */}
+                                        <button type="button" onClick={centerOnGps}
+                                            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-primary/20 text-primary font-bold text-sm rounded-xl hover:bg-primary/5 transition-all shadow-sm">
+                                            {mapLoading ? <Loader2 size={16} className="animate-spin" /> : <LocateFixed size={16} />}
+                                            Use My Current Location
+                                        </button>
+
+                                        {/* Pin Result */}
+                                        {mapPin && (
+                                            <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <MapPin size={16} className="text-primary shrink-0" />
+                                                    <p className="text-sm font-bold text-secondary">
+                                                        {mapLoading ? 'Getting address...' : mapAddress || `${mapPin.lat.toFixed(5)}, ${mapPin.lng.toFixed(5)}`}
+                                                    </p>
+                                                </div>
+                                                <p className="text-xs text-earth/40 font-mono ml-6">{mapPin.lat.toFixed(5)}, {mapPin.lng.toFixed(5)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* AI Analysis removed per user request - happens strictly post-submission */}
+                                        {!mapPin && (
+                                            <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                                                <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+                                                <p className="text-xs font-bold text-amber-700">No pin placed yet. Click on the map above to mark the issue location.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── MANUAL MODE ── */}
+                                {locationMode === 'manual' && (
+                                    <div className="space-y-5 animate-fade-in-up">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold uppercase tracking-widest text-earth/30 ml-1">Area Name <span className="text-red-500">*</span></label>
+                                            <input type="text" value={manualArea} onChange={(e) => setManualArea(e.target.value)}
+                                                placeholder="e.g. Perambur, Anna Nagar, Velachery..."
+                                                className={`form-input h-14 font-bold text-secondary w-full ${locationError && !manualArea.trim() ? 'border-red-400 ring-2 ring-red-100' : ''}`} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold uppercase tracking-widest text-earth/30 ml-1">
+                                                Landmark <span className="text-red-500">*</span>
+                                                <span className="ml-2 text-gray-300 normal-case font-normal">(Railway Station, Bus Stop, Hospital…)</span>
+                                            </label>
+                                            <input type="text" value={manualLandmark} onChange={(e) => setManualLandmark(e.target.value)}
+                                                placeholder="Near Railway Station / Bus Depot / School..."
+                                                className={`form-input h-14 text-secondary w-full ${locationError && !manualLandmark.trim() ? 'border-red-400 ring-2 ring-red-100' : ''}`} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold uppercase tracking-widest text-earth/30 ml-1">Pincode <span className="text-gray-300">(Optional)</span></label>
+                                            <input type="text" value={manualPincode} onChange={(e) => setManualPincode(e.target.value)}
+                                                placeholder="600011" maxLength={6} className="form-input h-14 font-mono text-secondary w-full" />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Auto-detection banner on Step 3 */}
+                                {detectedLocation && !detectedAccepted && (
+                                    <DetectionBanner detected={detectedLocation} source={detectedSource}
+                                        onAccept={acceptDetectedLocation} onDismiss={dismissDetection} />
+                                )}
+                                {detectedAccepted && (
+                                    <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
+                                        <CheckCircle2 size={18} className="text-green-600" />
+                                        <p className="text-sm font-bold text-green-700">Using: {manualArea}{manualLandmark && ` · Near ${manualLandmark}`}</p>
+                                    </div>
+                                )}
+
+                                {/* Zone Display (Read-only as per requirement) */}
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase tracking-widest text-earth/30 ml-1">{t('report.detectionZone')}</label>
+                                    <div className={`form-input h-14 flex items-center px-4 font-extrabold transition-all ${autoZone ? 'bg-primary/5 text-primary border-primary/20' : 'bg-gray-50 text-gray-300 italic'}`}>
+                                        {autoZone ? (
+                                            <div className="flex items-center gap-2">
+                                                <Sparkles size={16} />
+                                                {autoZone}
+                                            </div>
+                                        ) : (
+                                            "Detecting zone from location..."
+                                        )}
+                                    </div>
+                                    <p className="text-[10px] text-earth/40 font-bold uppercase tracking-tight ml-1">
+                                        {autoZone ? (
+                                            <span className="flex items-center gap-1 text-green-600"><CheckCircle2 size={12} /> Administrative zone automatically assigned</span>
+                                        ) : (
+                                            <span className="flex items-center gap-1 text-earth/60"><AlertTriangle size={12} /> Please select location on map to assign zone</span>
+                                        )}
+                                    </p>
+                                </div>
+
+                                {locationError && (
+                                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+                                        <ShieldAlert size={18} className="text-red-500 shrink-0" />
+                                        <p className="text-sm font-bold text-red-600">{locationError}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 flex gap-4 text-secondary/70">
+                                <ShieldAlert className="shrink-0 text-primary" />
+                                <p className="text-sm leading-relaxed font-medium">{t('report.verifyConcern')}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Conflict Dialog */}
+                    {showConflictDialog && (
+                        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 animate-fade-in-up">
+                                <div className="flex items-center gap-3 text-amber-600">
+                                    <AlertTriangle size={28} />
+                                    <h3 className="font-bold text-lg text-secondary">Location Conflict</h3>
+                                </div>
+                                <p className="text-sm text-secondary/70 leading-relaxed">
+                                    Your map pin is in <span className="font-bold text-secondary">{mapAreaName}</span>, but your complaint mentions <span className="font-bold text-primary">{detectedLocation?.areaName}</span>. Which should be used?
+                                </p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button type="button" onClick={() => resolveConflict('map')}
+                                        className="p-4 rounded-2xl border-2 border-gray-100 hover:border-primary/30 transition-all text-center space-y-2">
+                                        <MapPin size={24} className="mx-auto text-gray-400" />
+                                        <p className="text-xs font-bold text-secondary">Map Location</p>
+                                        <p className="text-[10px] text-gray-400">{mapAreaName}</p>
+                                    </button>
+                                    <button type="button" onClick={() => resolveConflict('text')}
+                                        className="p-4 rounded-2xl border-2 border-primary/30 bg-primary/5 hover:border-primary transition-all text-center space-y-2">
+                                        <Edit3 size={24} className="mx-auto text-primary" />
+                                        <p className="text-xs font-bold text-secondary">Complaint Location</p>
+                                        <p className="text-[10px] text-primary font-bold">{detectedLocation?.areaName}</p>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Navigation */}
+                    <div className="flex justify-between pt-8 border-t border-earth/10">
+                        {step > 1 ? (
+                            <button type="button" onClick={() => setStep(step - 1)}
+                                className="px-8 py-4 text-gray-400 font-bold hover:text-secondary flex items-center gap-2 transition-all">
+                                <ChevronLeft size={20} /> {t('common.back')}
+                            </button>
+                        ) : <div />}
+
+                        {step < 3 ? (
+                            <button type="button" onClick={() => setStep(step + 1)}
+                                className="btn-primary group shadow-premium">
+                                {t('common.continue')} <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                            </button>
+                        ) : (
+                            <button type="submit" disabled={loading || !hasLocation()}
+                                className={`btn-primary flex items-center gap-3 px-12 group shadow-premium ${!hasLocation() ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+                                {loading ? t('report.submitting') : t('report.submit')}
+                            </button>
+                        )}
                     </div>
+                </form>
+            </div>
+        </div>
+    );
+}
 
-                    {/* 4. AREA SELECTION */}
-                    <div className="form-group">
-                        <label className="form-label">Select Zone</label>
-                        <select
-                            value={area}
-                            onChange={(e) => setArea(e.target.value)}
-                            style={{ margin: 0, background: '#0f172a', border: '1px solid #1e293b' }}
-                        >
-                            <option value="Ambattur">Ambattur</option>
-                            <option value="Avadi">Avadi</option>
-                            <option value="Perambur">Perambur</option>
-                            <option value="Anna Nagar">Anna Nagar</option>
-                            <option value="Adyar">Adyar</option>
-                            <option value="Velachery">Velachery</option>
-                        </select>
-                    </div>
-                </div>
-
-                {/* 5. IMAGE UPLOAD */}
-                <div className="form-group" style={{ marginTop: '10px' }}>
-                    <label className="form-label">Evidence Photo</label>
-                    <div style={{
-                        border: '2px dashed #1e293b',
-                        borderRadius: '16px',
-                        padding: '20px',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        background: '#0f172a'
-                    }}>
-                        <input
-                            type="file"
-                            id="file-upload"
-                            hidden
-                            accept="image/*"
-                            onChange={(e) => setImage(e.target.files[0])}
-                        />
-                        <label htmlFor="file-upload" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                            <Camera size={32} color="#10b981" />
-                            <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-                                {image ? `✅ ${image.name}` : 'Click to add a photo'}
-                            </span>
-                        </label>
-                    </div>
-                </div>
-
-                <div style={{
-                    display: 'flex', alignItems: 'flex-start', gap: '10px',
-                    background: 'rgba(16, 185, 129, 0.05)', padding: '15px',
-                    borderRadius: '12px', marginBottom: '20px', border: '1px solid rgba(16, 185, 129, 0.1)'
-                }}>
-                    <Info size={18} color="#10b981" style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4' }}>
-                        Our AI analyzes your voice/text to detect <strong>critical infrastructure</strong> (Schools/Hospitals) and assigns priority levels automatically.
-                    </p>
-                </div>
-
-                <button
-                    type="submit"
-                    className="submit-btn"
-                    disabled={loading}
-                    style={{
-                        width: '100%', padding: '18px', fontSize: '1.2rem',
-                        fontWeight: '800', display: 'flex', justifyContent: 'center',
-                        alignItems: 'center', gap: '12px', borderRadius: '16px'
-                    }}
-                >
-                    {loading ? <Loader2 className="animate-spin" /> : '🚀 Submit Complaint'}
-                </button>
-            </form>
+function ValidationItem({ check, label }) {
+    return (
+        <div className="flex items-center gap-2">
+            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${check ? 'bg-primary text-white' : 'bg-earth/10 text-transparent'}`}>
+                {check && <CheckCircle2 size={10} />}
+            </div>
+            <span className={`text-xs font-bold ${check ? 'text-secondary' : 'text-earth/30'}`}>{label}</span>
         </div>
     );
 }

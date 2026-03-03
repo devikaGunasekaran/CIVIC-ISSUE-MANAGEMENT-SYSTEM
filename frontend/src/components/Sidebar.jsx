@@ -1,23 +1,29 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Home, FileText, MapPin, Bell, Info, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
+import { Home, FileText, MapPin, Bell, Info, LayoutDashboard, LogOut, Menu, X, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import LanguageSelector from './LanguageSelector';
 
 function Sidebar() {
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
     const [isAdmin, setIsAdmin] = useState(false);
+    const [username, setUsername] = useState(null);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
+    const { t } = useTranslation();
 
     useEffect(() => {
         if (token) {
             try {
                 const payload = JSON.parse(atob(token.split('.')[1]));
-                setIsAdmin(payload.role === 'admin');
+                setIsAdmin(payload.role === 'admin' || payload.role === 'area_admin');
+                setUsername(payload.sub);
             } catch (error) {
                 console.error('Error decoding token:', error);
             }
         } else {
             setIsAdmin(false);
+            setUsername(null);
         }
     }, [token]);
 
@@ -26,262 +32,135 @@ function Sidebar() {
         navigate('/login');
     };
 
-    const NavItem = ({ to, icon: Icon, label, onClick }) => (
-        <Link
-            to={to}
-            onClick={onClick}
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '15px',
-                padding: '14px 20px',
-                color: '#86efac',
-                textDecoration: 'none',
-                borderRadius: '12px',
-                transition: 'all 0.2s',
-                fontSize: '0.95rem',
-                fontWeight: '500',
-                marginBottom: '8px'
-            }}
-            onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
-                e.currentTarget.style.color = '#10b981';
-                e.currentTarget.style.transform = 'translateX(5px)';
-            }}
-            onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#86efac';
-                e.currentTarget.style.transform = 'translateX(0)';
-            }}
-        >
-            <Icon size={20} />
-            <span>{label}</span>
-        </Link>
-    );
+    const NavItem = ({ to, icon: Icon, label, onClick }) => {
+        const isActive = location.pathname === to;
+        return (
+            <Link
+                to={to}
+                onClick={onClick}
+                className={`flex items-center gap-4 px-5 py-3 rounded-xl transition-all duration-200 font-semibold group ${isActive
+                    ? 'bg-primary text-white shadow-md'
+                    : 'text-secondary/70 hover:text-primary hover:bg-primary/5'
+                    }`}
+            >
+                <Icon size={20} className={`${isActive ? '' : 'group-hover:scale-110'} transition-transform`} />
+                <span className="text-[0.9rem]">{label}</span>
+            </Link>
+        );
+    };
 
     const sidebarContent = (
-        <>
+        <div className="flex flex-col h-full bg-mint">
             {/* Logo */}
-            <div style={{
-                padding: '30px 20px',
-                borderBottom: '1px solid rgba(16, 185, 129, 0.2)',
-                marginBottom: '20px'
-            }}>
-                <h1 style={{
-                    fontSize: '1.8rem',
-                    background: 'linear-gradient(135deg, #10b981, #34d399)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    fontWeight: '700',
-                    margin: 0
-                }}>
-                    CivicApp
-                </h1>
-                <p style={{
-                    color: '#6ee7b7',
-                    fontSize: '0.85rem',
-                    marginTop: '5px',
-                    fontWeight: '500'
-                }}>
-                    {isAdmin ? 'Admin Panel' : 'Citizen Portal'}
+            <div className="p-8 border-b border-primary/10 mb-6">
+                <Link to="/" onClick={() => setIsMobileOpen(false)} className="block">
+                    <h1 className="text-2xl font-bold text-primary tracking-tight">
+                        CivicApp
+                    </h1>
+                </Link>
+                <p className="text-secondary/50 text-[0.65rem] uppercase font-bold tracking-[2px] mt-1">
+                    {isAdmin ? t('sidebar.adminPanel') : t('sidebar.citizenPortal')}
                 </p>
             </div>
 
             {/* Navigation */}
-            <nav style={{ padding: '0 15px', flex: 1 }}>
+            <nav className="flex-1 px-4 space-y-1">
                 {token ? (
                     <>
-                        <NavItem to="/" icon={Home} label="Home" onClick={() => setIsMobileOpen(false)} />
+                        <NavItem to="/" icon={Home} label={t('nav.home')} onClick={() => setIsMobileOpen(false)} />
 
                         {!isAdmin && (
                             <>
-                                <NavItem to="/report" icon={FileText} label="Report Issue" onClick={() => setIsMobileOpen(false)} />
-                                <NavItem to="/track" icon={MapPin} label="Track" onClick={() => setIsMobileOpen(false)} />
-                                <NavItem to="/notifications" icon={Bell} label="Notifications" onClick={() => setIsMobileOpen(false)} />
+                                <NavItem to="/report" icon={FileText} label={t('nav.reportIssue')} onClick={() => setIsMobileOpen(false)} />
+                                <NavItem to="/track" icon={MapPin} label={t('nav.track')} onClick={() => setIsMobileOpen(false)} />
+                                <NavItem to="/notifications" icon={Bell} label={t('nav.notifications')} onClick={() => setIsMobileOpen(false)} />
                             </>
                         )}
 
                         {isAdmin && (
-                            <NavItem to="/admin" icon={LayoutDashboard} label="Admin Dashboard" onClick={() => setIsMobileOpen(false)} />
+                            <NavItem to="/admin" icon={LayoutDashboard} label={t('nav.admin')} onClick={() => setIsMobileOpen(false)} />
                         )}
 
-                        <NavItem to="/about" icon={Info} label="About" onClick={() => setIsMobileOpen(false)} />
+                        <NavItem to="/about" icon={Info} label={t('nav.about')} onClick={() => setIsMobileOpen(false)} />
                     </>
                 ) : (
                     <>
-                        <NavItem to="/" icon={Home} label="Home" onClick={() => setIsMobileOpen(false)} />
-                        <NavItem to="/about" icon={Info} label="About" onClick={() => setIsMobileOpen(false)} />
+                        <NavItem to="/" icon={Home} label={t('nav.home')} onClick={() => setIsMobileOpen(false)} />
+                        <NavItem to="/about" icon={Info} label={t('nav.about')} onClick={() => setIsMobileOpen(false)} />
                     </>
                 )}
             </nav>
 
-            {/* Logout Button */}
-            {token && (
-                <div style={{ padding: '20px', borderTop: '1px solid rgba(16, 185, 129, 0.2)' }}>
+            {/* Footer Section */}
+            <div className="p-6 border-t border-earth/5 space-y-4">
+                <LanguageSelector />
+
+                {token && username && (
+                    <div className="flex items-center gap-4 p-4 mb-2 bg-primary/5 rounded-2xl border border-primary/10">
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                            <User size={20} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[10px] uppercase tracking-widest font-bold text-secondary/40 leading-none mb-1">
+                                {t('sidebar.loggedInAs')}
+                            </p>
+                            <p className="text-sm font-black text-secondary truncate">
+                                {username}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {token ? (
                     <button
                         onClick={() => {
                             handleLogout();
                             setIsMobileOpen(false);
                         }}
-                        style={{
-                            width: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '10px',
-                            padding: '12px',
-                            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                            border: 'none',
-                            borderRadius: '10px',
-                            color: 'white',
-                            fontSize: '0.95rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 8px 20px rgba(239, 68, 68, 0.4)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = 'none';
-                        }}
+                        className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl text-red-600 font-semibold border-2 border-red-100 hover:bg-red-50 hover:border-red-200 transition-all"
                     >
                         <LogOut size={18} />
-                        <span>Logout</span>
+                        <span>{t('nav.logout')}</span>
                     </button>
-                </div>
-            )}
-
-            {!token && (
-                <div style={{ padding: '20px', borderTop: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                    <Link to="/login">
-                        <button
-                            style={{
-                                width: '100%',
-                                padding: '12px',
-                                background: 'linear-gradient(135deg, #10b981, #059669)',
-                                border: 'none',
-                                borderRadius: '10px',
-                                color: 'white',
-                                fontSize: '0.95rem',
-                                fontWeight: '600',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Login
+                ) : (
+                    <Link to="/login" onClick={() => setIsMobileOpen(false)}>
+                        <button className="btn-primary w-full">
+                            {t('nav.login')}
                         </button>
                     </Link>
-                </div>
-            )}
-        </>
+                )}
+            </div>
+        </div>
     );
 
     return (
         <>
-            {/* Mobile Menu Button */}
+            {/* Mobile Toggle */}
             <button
                 onClick={() => setIsMobileOpen(!isMobileOpen)}
-                style={{
-                    position: 'fixed',
-                    top: '20px',
-                    left: '20px',
-                    zIndex: 1100,
-                    display: 'none',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '10px',
-                    color: 'white',
-                    cursor: 'pointer'
-                }}
-                className="mobile-menu-btn"
+                className="fixed top-4 left-4 z-[60] md:hidden p-3 rounded-xl bg-primary text-white shadow-lg hover:scale-105 active:scale-95 transition-all"
             >
                 {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
 
-            <style>{`
-                @media (max-width: 768px) {
-                    .mobile-menu-btn {
-                        display: block !important;
-                    }
-                }
-            `}</style>
-
-            {/* Desktop Sidebar */}
-            <div
-                style={{
-                    position: 'fixed',
-                    left: 0,
-                    top: 0,
-                    width: '280px',
-                    height: '100vh',
-                    background: 'linear-gradient(180deg, #0f2f27 0%, #0a1f1a 100%)',
-                    borderRight: '1px solid rgba(16, 185, 129, 0.2)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    zIndex: 1000,
-                    transition: 'transform 0.3s ease',
-                    transform: isMobileOpen ? 'translateX(0)' : 'translateX(0)'
-                }}
-                className="sidebar-desktop"
-            >
-                {sidebarContent}
-            </div>
-
-            {/* Mobile Sidebar */}
-            <div
-                style={{
-                    position: 'fixed',
-                    left: 0,
-                    top: 0,
-                    width: '280px',
-                    height: '100vh',
-                    background: 'linear-gradient(180deg, #0f2f27 0%, #0a1f1a 100%)',
-                    borderRight: '1px solid rgba(16, 185, 129, 0.2)',
-                    display: 'none',
-                    flexDirection: 'column',
-                    zIndex: 1000,
-                    transition: 'transform 0.3s ease',
-                    transform: isMobileOpen ? 'translateX(0)' : 'translateX(-100%)'
-                }}
-                className="sidebar-mobile"
-            >
-                {sidebarContent}
-            </div>
-
-            {/* Mobile Overlay */}
+            {/* Backdrop */}
             {isMobileOpen && (
                 <div
                     onClick={() => setIsMobileOpen(false)}
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(0, 0, 0, 0.7)',
-                        zIndex: 999,
-                        display: 'none'
-                    }}
-                    className="mobile-overlay"
+                    className="fixed inset-0 bg-secondary/40 backdrop-blur-sm z-[45] md:hidden transition-opacity"
                 />
             )}
 
-            <style>{`
-                @media (max-width: 768px) {
-                    .sidebar-desktop {
-                        display: none !important;
-                    }
-                    .sidebar-mobile {
-                        display: flex !important;
-                    }
-                    .mobile-overlay {
-                        display: block !important;
-                    }
-                }
-            `}</style>
+            {/* Sidebar Container */}
+            <aside
+                className={`fixed top-0 left-0 h-full w-[260px] bg-mint border-r border-primary/5 z-50 transition-transform duration-300 md:translate-x-0 ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
+            >
+                {sidebarContent}
+            </aside>
+
+            {/* Main Content Spacer for fixed sidebar */}
+            <div className="hidden md:block w-[260px] shrink-0" />
         </>
     );
 }

@@ -1,81 +1,66 @@
-:root {
-  --primary-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  --secondary-gradient: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-  --accent-gradient: linear-gradient(135deg, #6ee7b7 0%, #34d399 100%);
-  --background-dark: #0a1f1a;
-  --surface-dark: #0f2f27;
-  --surface-light: #ffffff;
-  --text-primary: #f0fdf4;
-  --text-secondary: #86efac;
-  --glass-bg: rgba(16, 185, 129, 0.1);
-  --glass-border: 1px solid rgba(16, 185, 129, 0.2);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
 
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@import "tailwindcss";
+@config "../tailwind.config.js";
 
-  color-scheme: dark;
-  color: var(--text-primary);
-  background-color: var(--background-dark);
+@layer base {
+  body {
+    @apply bg-white text-secondary font-sans antialiased relative min-h-screen selection:bg-primary/20;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+  }
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+@layer components {
+  .btn-primary {
+    @apply px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold transition-all duration-300 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] border border-secondary/20;
+  }
 
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background: var(--background-dark);
-  overflow-x: hidden;
-}
+  .btn-outline {
+    @apply px-6 py-3 rounded-xl border-2 border-primary text-primary font-semibold transition-all duration-300 hover:bg-white hover:shadow-sm;
+  }
 
-#root {
-  width: 100%;
-  min-height: 100vh;
-}
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm rounded-2xl border-l-4 border-primary p-6 shadow-soft transition-all duration-300 hover:shadow-premium hover:-translate-y-1;
+  }
 
-/* App Layout with Sidebar */
-.app-layout {
-  display: flex;
-  min-height: 100vh;
-}
+  .form-input {
+    @apply w-full px-4 py-3 rounded-lg border border-earth/20 bg-white/50 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all duration-200 text-secondary;
+  }
 
-.app-content {
-  flex: 1;
-  margin-left: 280px;
-  min-height: 100vh;
-  transition: margin-left 0.3s ease;
-}
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border;
+  }
 
-@media (max-width: 768px) {
-  .app-content {
-    margin-left: 0;
+  /* Earthy status classes */
+  .status-SUBMITTED {
+    @apply bg-blue-50 text-blue-700 border-blue-100;
+  }
+
+  .status-IN_PROGRESS {
+    @apply bg-highlight/10 text-highlight border-highlight/20;
+  }
+
+  .status-RESOLVED {
+    @apply bg-primary/10 text-primary border-primary/20;
+  }
+
+  .badge-high {
+    @apply bg-red-50 text-red-700 border-red-100;
+  }
+
+  .badge-medium {
+    @apply bg-highlight/10 text-highlight border-highlight/20;
+  }
+
+  .badge-low {
+    @apply bg-primary/10 text-primary border-primary/20;
   }
 }
 
-/* Glassmorphism Utility */
-.glass-card {
-  background: var(--glass-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: var(--glass-border);
-  border-radius: 16px;
-  padding: 2rem;
-  box-shadow: var(--shadow-lg);
-}
-
-/* Animations */
-@keyframes fadeIn {
+@keyframes fade-in-up {
   from {
     opacity: 0;
     transform: translateY(20px);
@@ -87,141 +72,6 @@ body {
   }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(100px);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-/* Button Styles */
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background: var(--primary-gradient);
-  color: white;
-  cursor: pointer;
-  transition: all 0.25s, transform 0.1s;
-}
-
-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
-}
-
-button:focus,
-button:focus-visible {
-  outline: 2px solid #10b981;
-  outline-offset: 2px;
-}
-
-/* Inputs */
-input,
-textarea,
-select {
-  width: 100%;
-  padding: 12px;
-  margin: 8px 0;
-  border-radius: 8px;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  background: var(--surface-dark);
-  color: white;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-input:focus,
-textarea:focus,
-select:focus {
-  border-color: #10b981;
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
-}
-
-/* Status Badges */
-.status-badge {
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.status-SUBMITTED {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-}
-
-.status-IN_PROGRESS {
-  background: rgba(234, 179, 8, 0.2);
-  color: #fbbf24;
-}
-
-.status-RESOLVED {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--surface-dark);
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #10b981, #059669);
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #34d399, #10b981);
-}
-
-@keyframes pulse {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-  }
-
-  70% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
-  }
-
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-  }
-}
-
-.pulsing {
-  animation: pulse 1.5s infinite;
-}
-
-.secondary-action {
-  background: transparent !important;
-  border: 1px solid rgba(16, 185, 129, 0.3) !important;
-  color: #86efac !important;
-}
-
-.secondary-action:hover {
-  background: rgba(16, 185, 129, 0.1) !important;
-  border-color: #10b981 !important;
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
 }
