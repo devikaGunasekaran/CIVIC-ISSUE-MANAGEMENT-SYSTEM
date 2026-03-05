@@ -11,6 +11,34 @@ from ..services.ai_service import ai_service
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
+@router.post("/ocr/extract-text")
+async def extract_text_from_image_api(image: UploadFile = File(...)):
+    import tempfile
+    import os
+    import google.generativeai as genai
+    
+    try:
+        if not image:
+            return {"text": ""}
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+            temp_file.write(await image.read())
+            temp_path = temp_file.name
+        
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            img_file = genai.upload_file(path=temp_path)
+            prompt = "Extract all text visible in this image accurately. The text may be in Tamil or English, handwritten or printed. Only return the extracted text, no other conversational filler."
+            
+            response = model.generate_content([prompt, img_file])
+            return {"text": response.text.strip()}
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception as e:
+        print(f"[OCR Endpoint Error] {e}")
+        return {"error": str(e), "text": ""}
+
 @router.get("/priority-preview")
 async def get_priority_preview(
     lat: float = Query(..., description="Latitude of the issue location"),
@@ -95,13 +123,14 @@ async def create_complaint(
     description: str = Form(""), 
     location: str = Form(...),
     area: str = Form(...),
-    image: UploadFile = File(None),
-    audio: UploadFile = File(None),
+    image: Optional[UploadFile] = File(None),
+    image_path: Optional[str] = Form(None),
+    audio: Optional[UploadFile] = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     return complaint_service.create_complaint(
-        db, background_tasks, current_user.id, description, location, area, image, audio
+        db, background_tasks, current_user.id, description, location, area, image, audio, image_path
     )
 
 @router.get("/", response_model=List[ComplaintResponse])

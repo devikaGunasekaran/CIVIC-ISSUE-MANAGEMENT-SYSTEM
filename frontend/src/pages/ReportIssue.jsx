@@ -82,6 +82,7 @@ function ReportIssue() {
     const [autoZone, setAutoZone] = useState(null);     // auto-detected GCC zone
     const [zoneLoading, setZoneLoading] = useState(false);  // zone detection in progress
     const [image, setImage] = useState(null);
+    const [imagePath, setImagePath] = useState('');
     const [audioFile, setAudioFile] = useState(null);
     const [paperComplaint, setPaperComplaint] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -479,6 +480,7 @@ function ReportIssue() {
             formData.append('area', finalArea || 'Chennai');
 
             if (image) formData.append('image', image);
+            if (imagePath) formData.append('image_path', imagePath);
             if (audioFile) formData.append('audio', audioFile);
             if (paperComplaint) formData.append('paper_complaint', paperComplaint);
             const response = await api.post('/complaints/', formData);
@@ -698,6 +700,12 @@ function ReportIssue() {
                                             <input type="file" hidden accept="image/*" onChange={(e) => setImage(e.target.files[0])} />
                                         </label>
                                     )}
+                                </div>
+                                <div className="space-y-2 mt-4 text-center">
+                                    <p className="text-xs text-earth/50 font-bold uppercase tracking-widest">OR ENTER IMAGE URL/PATH</p>
+                                    <input type="text" value={imagePath} onChange={(e) => setImagePath(e.target.value)}
+                                        placeholder="https://example.com/image.jpg or /path/to/image.jpg"
+                                        className="form-input h-10 text-sm w-full text-center border-gray-200" />
                                 </div>
                             </div>
                             <DetectionBanner detected={detectedLocation} source={detectedSource}

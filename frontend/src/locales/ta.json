@@ -241,7 +241,10 @@
         "categoryDistribution": "வகையேற்ற விநியோகம்",
         "last7Days": "கடந்த 7 நாட்கள்",
         "last30Days": "கடந்த 30 நாட்கள்",
-        "exportReports": "தரவுகளை பதிவிறக்கு"
+        "exportReports": "தரவுகளை பதிவிறக்கு",
+        "startWork": "விசாரணையைத் தொடங்கு",
+        "markResolved": "நிறைவு செய்யப்பட்டதாகக் குறிக்கவும்",
+        "rejectComplaint": "நிராகரி / ஸ்பேம்"
     },
     "categories": {
         "Potholes": "குழிகள்",

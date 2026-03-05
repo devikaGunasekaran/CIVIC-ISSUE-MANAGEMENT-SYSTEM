@@ -90,3 +90,6 @@ Desktop.ini
 
 # User Uploads
 uploads/
+
+# Temporary files
+tmp/

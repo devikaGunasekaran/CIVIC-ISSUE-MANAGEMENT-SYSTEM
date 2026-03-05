@@ -348,7 +348,7 @@ export function fuzzyMatchCategory(text) {
 /**
  * Full OCR pipeline:
  * 1. Preprocess image (Canvas: grayscale + contrast + threshold)
- * 2. Run Tesseract OCR
+ * 2. Send image to Backend OCR API (powered by Gemini)
  * 3. Clean extracted text
  * 4. Fuzzy-match category
  * 5. Extract location from cleaned text
@@ -358,7 +358,9 @@ export function fuzzyMatchCategory(text) {
  * @returns {Promise<{ rawText, cleanedText, category, confidence, location }>}
  */
 export async function runOCRPipeline(imageFile, onProgress) {
-    // Step 1: Preprocess
+    if (onProgress) onProgress(5);
+
+    // Step 1: Preprocess (optional but helpful for clarity, though Gemini handles raw images well)
     let processedFile = imageFile;
     try {
         const preprocessed = await preprocessImageForOCR(imageFile);
@@ -366,22 +368,36 @@ export async function runOCRPipeline(imageFile, onProgress) {
     } catch (e) {
         console.warn('Preprocessing failed, using raw image:', e);
     }
+    if (onProgress) onProgress(30);
 
-    // Step 2: Tesseract OCR
-    const { createWorker } = await import('tesseract.js');
-    if (onProgress) onProgress(5);
+    // Step 2: Send to Backend API
+    let rawText = "";
+    try {
+        const formData = new FormData();
+        formData.append("image", processedFile, "image.png");
 
-    const worker = await createWorker('eng+tam', 1, {
-        logger: (m) => {
-            if (m.status === 'recognizing text' && onProgress) {
-                onProgress(10 + Math.round(m.progress * 80));
-            }
-        },
-    });
+        // Use correct backend base URL and pass auth token
+        const baseUrl = "http://localhost:8000";
+        const token = localStorage.getItem("token");
+        const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+        const response = await fetch(`${baseUrl}/complaints/ocr/extract-text`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
 
-    const { data: { text: rawText } } = await worker.recognize(processedFile);
-    await worker.terminate();
-    if (onProgress) onProgress(95);
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`API error ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+        rawText = data.text || "";
+    } catch (err) {
+        console.error("Backend OCR error:", err);
+        rawText = "";
+    }
+    if (onProgress) onProgress(85);
 
     // Step 3: Clean
     const cleanedText = cleanOCRText(rawText);

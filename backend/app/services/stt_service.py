@@ -35,7 +35,7 @@ class STTService:
             if file_size == 0:
                 raise Exception("Uploaded audio file is empty")
 
-            model = genai.GenerativeModel('models/gemini-flash-latest')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             audio_file = genai.upload_file(path=file_path, mime_type="audio/wav")
             
             # Poll
@@ -47,7 +47,11 @@ class STTService:
                 retries += 1
 
             prompt = """Analyze the following audio recording of a civic complaint in Chennai.
-            Return JSON: {"transcription": "...", "confidence": 0.95, "language_detected": "...", "is_clear": true}"""
+            The speaker may use Tamil, English, or a mix (Tanglish). 
+            Transcribe exactly what is spoken.
+            Common technical terms: "pothole", "kuli/kuzhi", "garbage", "EB problem", "transformer", "water stagnation", "street light", "road damage".
+            
+            Return ONLY a JSON object: {"transcription": "...", "confidence": 0.95, "language_detected": "Tamil/English/Tanglish", "is_clear": true}"""
 
             response = model.generate_content([prompt, audio_file])
             text = response.text.strip()

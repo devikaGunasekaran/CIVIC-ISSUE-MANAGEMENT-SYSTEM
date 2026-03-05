@@ -247,7 +247,10 @@
         "categoryDistribution": "Category Distribution",
         "last7Days": "Last 7 Days",
         "last30Days": "Last 30 Days",
-        "exportReports": "Export Reports"
+        "exportReports": "Export Reports",
+        "startWork": "Start Investigation",
+        "markResolved": "Mark as Completed",
+        "rejectComplaint": "Reject / Spam"
     },
     "categories": {
         "Potholes": "Potholes",

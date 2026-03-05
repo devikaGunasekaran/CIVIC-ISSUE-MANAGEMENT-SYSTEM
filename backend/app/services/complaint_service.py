@@ -47,10 +47,13 @@ class ComplaintService:
         location: str,
         area: str,
         image: Optional[UploadFile] = None,
-        audio: Optional[UploadFile] = None
+        audio: Optional[UploadFile] = None,
+        image_path: Optional[str] = None
     ):
         image_url = None
-        if image:
+        if image_path:
+            image_url = image_path
+        elif image:
             file_path = f"{UPLOAD_DIR}/{image.filename}"
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)

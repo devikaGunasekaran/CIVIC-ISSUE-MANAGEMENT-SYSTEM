@@ -402,17 +402,17 @@ function AdminDashboard() {
             {selectedComplaint && (
                 <div className="fixed inset-0 z-[3000] flex items-center justify-center p-6 sm:p-12 animate-fade-in">
                     <div className="absolute inset-0 bg-secondary/60" onClick={() => setSelectedComplaint(null)}></div>
-                    <div className="relative bg-white w-full max-w-5xl max-h-full rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-scale-in">
+                    <div className="relative bg-white w-full max-w-7xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-scale-in">
                         {/* Media Sidebar */}
-                        <div className="w-full md:w-2/5 bg-gray-50 border-r border-gray-100 overflow-hidden relative group">
+                        <div className="w-full md:w-1/2 bg-slate-950 border-r border-gray-100 overflow-hidden relative group">
                             {selectedComplaint.image_url ? (
                                 <img
-                                    src={`http://localhost:8000/uploads/${selectedComplaint.image_url.split('/').pop()}`}
-                                    className="w-full h-64 md:h-full object-cover"
+                                    src={selectedComplaint.image_url.startsWith('http') ? selectedComplaint.image_url : `http://localhost:8000/uploads/${selectedComplaint.image_url.split('/').pop()}`}
+                                    className="w-full h-full object-contain p-2"
                                     alt="Verification"
                                 />
                             ) : (
-                                <div className="h-64 md:h-full flex flex-col items-center justify-center text-earth/20 gap-4">
+                                <div className="h-64 md:h-full flex flex-col items-center justify-center text-earth/20 gap-4 bg-gray-50">
                                     <MapPin size={64} className="opacity-10" />
                                     <p className="text-xs font-bold uppercase tracking-widest italic">Digital Geotag Locked</p>
                                 </div>
@@ -489,15 +489,38 @@ function AdminDashboard() {
                                             <Bell size={16} className="text-primary" />
                                             {t('admin.operationalOverride')}
                                         </h4>
-                                        <select
-                                            value={selectedComplaint.status}
-                                            onChange={(e) => handleStatusUpdate(selectedComplaint.id, e.target.value)}
-                                            className="w-full h-14 px-6 bg-white border border-gray-100 rounded-2xl text-sm font-bold text-secondary focus:ring-2 focus:ring-primary/20 outline-none shadow-sm cursor-pointer"
-                                        >
-                                            <option value="SUBMITTED">{t('statuses.SUBMITTED')}</option>
-                                            <option value="IN_PROGRESS">{t('statuses.IN_PROGRESS')}</option>
-                                            <option value="RESOLVED">{t('statuses.RESOLVED')}</option>
-                                        </select>
+                                        <div className="flex flex-col gap-3">
+                                            {selectedComplaint.status === 'SUBMITTED' && (
+                                                <button
+                                                    onClick={() => handleStatusUpdate(selectedComplaint.id, 'IN_PROGRESS')}
+                                                    className="w-full py-4 bg-amber-500 text-white font-bold rounded-2xl shadow-lg shadow-amber-100 hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <Clock size={20} /> {t('admin.startWork')}
+                                                </button>
+                                            )}
+
+                                            {selectedComplaint.status !== 'RESOLVED' && (
+                                                <button
+                                                    onClick={() => handleStatusUpdate(selectedComplaint.id, 'RESOLVED')}
+                                                    className="w-full py-4 bg-primary text-white font-bold rounded-2xl shadow-lg shadow-green-100 hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <CheckCircle2 size={20} /> {t('admin.markResolved')}
+                                                </button>
+                                            )}
+
+                                            {selectedComplaint.status === 'RESOLVED' && (
+                                                <div className="w-full py-4 bg-green-100 text-primary font-bold rounded-2xl flex items-center justify-center gap-2 border border-primary/20">
+                                                    <CheckCircle2 size={20} /> {t('statuses.RESOLVED')}
+                                                </div>
+                                            )}
+
+                                            <button
+                                                onClick={() => handleStatusUpdate(selectedComplaint.id, 'REJECTED')}
+                                                className="w-full py-3 bg-white border border-red-100 text-red-500 text-xs font-bold rounded-xl hover:bg-red-50 transition-all"
+                                            >
+                                                {t('admin.rejectComplaint')}
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="pt-6 border-t border-earth/10 space-y-4">

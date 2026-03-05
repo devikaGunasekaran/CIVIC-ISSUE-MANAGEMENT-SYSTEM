@@ -160,7 +160,11 @@ function ComplaintDetail() {
                             <div className="relative aspect-square rounded-[2rem] overflow-hidden border-4 border-white shadow-soft">
                                 {complaint.image_url ? (
                                     <img
-                                        src={`http://localhost:8000/uploads/${complaint.image_url.split('/').pop()}`}
+                                        src={
+                                            complaint.image_url.startsWith('http')
+                                                ? complaint.image_url
+                                                : `http://localhost:8000/uploads/${complaint.image_url.split(/[\\/]/).pop()}`
+                                        }
                                         alt="Evidence"
                                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                                     />

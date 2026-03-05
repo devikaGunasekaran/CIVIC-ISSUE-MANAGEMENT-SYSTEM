@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import os
 
@@ -35,6 +36,12 @@ app.include_router(complaint_controller.router)
 app.include_router(admin_controller.router)
 app.include_router(stt_controller.router)
 app.include_router(chatbot_controller.router)
+
+# Serve uploaded files statically
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 @app.get("/")
 def read_root():
