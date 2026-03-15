@@ -8,6 +8,7 @@ import Tracking from './pages/Tracking';
 import ComplaintDetail from './pages/ComplaintDetail';
 import NotificationPage from './pages/NotificationPage';
 import AboutPage from './pages/AboutPage';
+import Profile from './pages/Profile';
 import Sidebar from './components/Sidebar';
 import Footer from './components/Footer';
 import ChatBot from './components/ChatBot';
@@ -26,6 +27,7 @@ function App() {
               <Route path="/report" element={<ReportIssue />} />
               <Route path="/track" element={<Tracking />} />
               <Route path="/complaint/:id" element={<ComplaintDetail />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/notifications" element={<NotificationPage />} />
               <Route path="/about" element={<AboutPage />} />

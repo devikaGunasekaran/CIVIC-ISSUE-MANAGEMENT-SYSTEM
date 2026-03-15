@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Home, FileText, MapPin, Bell, Info, LayoutDashboard, LogOut, Menu, X, User } from 'lucide-react';
+import { Home, FileText, MapPin, Bell, Info, LayoutDashboard, LogOut, Menu, X, User, UserCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import LanguageSelector from './LanguageSelector';
@@ -74,6 +74,7 @@ function Sidebar() {
                                 <NavItem to="/report" icon={FileText} label={t('nav.reportIssue')} onClick={() => setIsMobileOpen(false)} />
                                 <NavItem to="/track" icon={MapPin} label={t('nav.track')} onClick={() => setIsMobileOpen(false)} />
                                 <NavItem to="/notifications" icon={Bell} label={t('nav.notifications')} onClick={() => setIsMobileOpen(false)} />
+                                <NavItem to="/profile" icon={UserCircle} label="My Profile" onClick={() => setIsMobileOpen(false)} />
                             </>
                         )}
 

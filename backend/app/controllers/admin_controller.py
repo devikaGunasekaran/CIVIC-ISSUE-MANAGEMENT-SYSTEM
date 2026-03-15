@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from ..core.database import get_db
 from ..schemas.complaint import ComplaintResponse
@@ -12,10 +12,11 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 def update_complaint_status(
     complaint_id: int, 
     status: str, 
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return admin_service.update_status(db, complaint_id, status, current_user)
+    return admin_service.update_status(db, complaint_id, status, current_user, background_tasks)
 
 @router.put("/complaints/{complaint_id}/assign", response_model=ComplaintResponse)
 def assign_complaint(

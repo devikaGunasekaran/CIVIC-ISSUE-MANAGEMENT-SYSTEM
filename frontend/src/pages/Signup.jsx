@@ -9,6 +9,7 @@ function Signup() {
     const [username, setUsername] = React.useState('');
     const [email, setEmail] = React.useState('');
     const [password, setPassword] = React.useState('');
+    const [phone, setPhone] = React.useState('');
     const [signupMode, setSignupMode] = React.useState('standard'); // 'standard', 'phone'
     const [phoneNumber, setPhoneNumber] = React.useState('');
     const [otp, setOtp] = React.useState('');
@@ -70,7 +71,7 @@ function Signup() {
         setErrorMsg('');
         setIsLoading(true);
         try {
-            await api.post('/auth/signup', { username, email, password });
+            await api.post('/auth/signup', { username, email, password, phone: phone || null });
             setSuccessMsg("Account created successfully! Redirecting...");
             setTimeout(() => {
                 navigate('/login');
@@ -191,6 +192,24 @@ function Signup() {
                                         placeholder="••••••••"
                                         className="w-full h-14 pl-11 pr-4 bg-white border border-gray-100 rounded-2xl shadow-soft focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-secondary font-medium"
                                         required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">
+                                    Phone Number <span className="text-gray-300 font-normal">(for SMS alerts)</span>
+                                </label>
+                                <div className="relative group">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:text-primary transition-colors">
+                                        <Phone size={18} />
+                                    </div>
+                                    <input
+                                        type="tel"
+                                        value={phone}
+                                        onChange={(e) => setPhone(e.target.value)}
+                                        placeholder="+91 98765 43210 (optional)"
+                                        className="w-full h-14 pl-11 pr-4 bg-white border border-gray-100 rounded-2xl shadow-soft focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-secondary font-medium"
                                     />
                                 </div>
                             </div>

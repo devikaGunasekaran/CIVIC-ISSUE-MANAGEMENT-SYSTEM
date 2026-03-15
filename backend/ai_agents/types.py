@@ -29,7 +29,7 @@ class AgentState(TypedDict):
     insight: str
     status: str
     dispatch: Dict[str, str]
-
+    
 @dataclass
 class PreprocessedOutput:
     text: str

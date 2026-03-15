@@ -58,23 +58,40 @@ def vision_agent(state):
     if not state.get("image"): return state
     try:
         img = Image.open(state["image"])
-        text = pytesseract.image_to_string(img)
+        try:
+            # Attempt to use English, Tamil, and Hindi language packs
+            text = pytesseract.image_to_string(img, lang='eng+tam+hin')
+        except Exception as lang_error:
+            # Fallback to English if Tamil/Hindi packs are not installed
+            print(f"Multilingual OCR failed ({lang_error}). Falling back to English.")
+            text = pytesseract.image_to_string(img)
+            
         state["text"] = (state.get("text") or "") + " " + text
     except Exception as e:
         print(f"Vision Error: {e}")
     return state
 
 def geo_agent(state):
+    default_geo = {"school": 999, "hospital": 999, "college": 999, "shopping_mall": 999, "bus_stand": 999}
     if not state.get("gps"):
-        state["geo"] = {"school": 999, "hospital": 999}
+        state["geo"] = default_geo
         return state
     try:
         lat, lon = map(float, state["gps"].split(","))
-        school, hospital = (13.0850, 80.2100), (13.0827, 80.2707)
-        state["geo"] = {"school": haversine(lat, lon, *school), "hospital": haversine(lat, lon, *hospital)}
+        landmarks = {
+            "school": (13.0850, 80.2100),
+            "hospital": (13.0827, 80.2707),
+            "college": (13.0102, 80.2359),
+            "shopping_mall": (12.9840, 80.2229),
+            "bus_stand": (13.0674, 80.1791)
+        }
+        geo_data = {}
+        for name, coords in landmarks.items():
+            geo_data[name] = haversine(lat, lon, *coords)
+        state["geo"] = geo_data
     except Exception as e:
         print(f"Geo Agent Error: {e}")
-        state["geo"] = {"school": 999, "hospital": 999}
+        state["geo"] = default_geo
     return state
 
 def rag_agent(state):
@@ -88,35 +105,151 @@ def rag_agent(state):
     return state
 
 def reasoning_agent(state):
-    geo = state.get("geo", {"school": 999, "hospital": 999})
+    default_geo = {"school": 999, "hospital": 999, "college": 999, "shopping_mall": 999, "bus_stand": 999}
+    geo = state.get("geo", default_geo)
+    
+    nearby_landmarks = {k: v for k, v in geo.items() if isinstance(v, (int, float)) and v <= 2.0}
+    if nearby_landmarks:
+        geo_text = "Nearby Landmarks (within 2 km):\n" + "\n".join([f"- {k.replace('_', ' ').title()}: {v:.2f} km" for k, v in nearby_landmarks.items()])
+    else:
+        geo_text = "Nearby Landmarks: None within 2 km."
+        
+    rag_context = state.get('rag', '')
+    rag_section = f"Context from Past Cases:\n{rag_context}\n" if rag_context else "Context from Past Cases:\nNone provided.\n"
+
     prompt = f"""
-    You are a civic infrastructure AI.
-    Analyze the following complaint and classify it.
-    
-    Complaint: {state.get('text')}
-    Distances: {geo}
-    
-    Priority Rules:
-    - Pothole near hospital (<0.5km) -> CRITICAL
-    - Pothole near school (<0.3km) -> HIGH
-    - Garbage near hospital/school (<0.3km) -> HIGH
-    
-    Department Rules:
-    - Potholes, Road damage, Bad roads -> Road Department
-    - Garbage, Waste, Broken Bins, Dumping -> Waste Management
-    - Street Light, Power, Electricity -> Electric Department
-    - Water stagnation, Flooding, Drainage -> Water & Sewage Department
-    - Stray Dogs, Dead Animals -> Veterinary Dept
-    - Public Toilets, Mosquitoes -> Health & Sanitation Dept
-    
-    Return JSON:
-    {{
-        "issue": "Brief technical issue name",
-        "priority": "LOW/MEDIUM/HIGH/CRITICAL",
-        "reason": "One line explanation including proximity to landmarks",
-        "department": "Department Name from the rules above"
-    }}
-    """
+You are an expert Civic Infrastructure Classification AI used by a Smart City complaint management system.
+
+Your job is to analyze a citizen complaint and classify it accurately.
+
+You must determine:
+1. The exact infrastructure issue
+2. The priority level
+3. The responsible government department
+4. A short reasoning
+
+-----------------------------------
+INPUT DATA
+-----------------------------------
+
+Complaint Text:
+{state.get('text')}
+
+{rag_section}
+Landmark Distances:
+{geo_text}
+
+-----------------------------------
+ISSUE DETECTION RULE
+-----------------------------------
+
+Identify the infrastructure problem mentioned in the complaint.
+
+Possible examples include but are not limited to:
+
+Road Infrastructure
+- pothole
+- broken road
+- damaged pavement
+- traffic signal failure
+
+Waste Management
+- garbage overflow
+- illegal dumping
+- broken dustbin
+
+Electricity Issues
+- street lights not working
+- exposed wires
+- electric pole damage
+
+Water & Drainage
+- water leakage
+- sewage overflow
+- flooding
+- blocked drainage
+- broken manhole
+
+Public Health & Sanitation
+- mosquito breeding
+- dirty public toilet
+- unhygienic surroundings
+
+Animal Control
+- stray dogs
+- dead animals
+
+Urban Environment
+- fallen tree
+- overgrown vegetation
+
+Construction Violations
+- illegal construction
+- encroachment
+
+If the issue does not clearly match any category, infer the closest civic problem.
+-----------------------------------
+DEPARTMENT MAPPING RULES
+-----------------------------------
+
+Road damage, potholes → Road Department  
+Garbage, waste → Waste Management Department  
+Street lights, electricity → Electricity Department  
+Water leakage, drainage, sewage → Water & Sewage Department  
+Animals → Veterinary Department  
+Public sanitation → Health & Sanitation Department  
+Trees, vegetation → Parks & Forest Department  
+Traffic signals → Traffic Police Department  
+Illegal construction → Urban Planning Department  
+Noise complaints → Police Department  
+
+If unclear → Municipal Services Department
+-----------------------------------
+PRIORITY RULES
+-----------------------------------
+
+Determine priority intelligently by analyzing the issue severity, its distance to important public landmarks (hospitals, schools, colleges, bus stands, and malls), and matching past cases.
+
+CRITICAL
+- Life-threatening or major disruptions (e.g., exposed electric wires, severe flooding).
+- Severe issues (large potholes, severe water-logging, major road blocks) near a hospital or on a highway/main arterial road.
+- Severe issues that block emergency access.
+
+HIGH
+- Garbage overflow, open drains, water leakage, or street light failures within 0.5 km of a hospital, school, college, shopping_mall, or bus_stand.
+- Issues causing significant inconvenience in highly populated or transit areas.
+- Potholes on highways, main roads, or near schools/transit spots due to high accident risk.
+- Sewage overflow or unhygienic surroundings near educational, healthcare, or commercial hubs.
+
+MEDIUM
+- Standard complaints (general potholes, normal garbage dumping, drainage issues) not immediately threatening and further away from critical public spots.
+- Issues in residential areas without immediate danger to public health.
+
+LOW
+- Minor issues (minor sanitation complaints, stray animals without aggression, general maintenance) in low-traffic areas.
+- Aesthetic issues or overgrown vegetation not immediately hazardous.
+
+-----------------------------------
+OUTPUT FORMAT (STRICT JSON ONLY)
+
+Return only valid JSON. No explanations outside JSON.
+
+{{
+    "issue": "Short technical issue name",
+    "priority": "LOW | MEDIUM | HIGH | CRITICAL",
+    "department": "Responsible department name",
+    "reason": "Short one sentence explanation referencing the complaint and location context"
+}}
+
+-----------------------------------
+IMPORTANT RULES
+
+- Always select the most specific issue possible
+- Always follow the priority rules
+- Always assign a department
+- If text contains multiple issues, choose the most severe one
+- Output ONLY JSON
+"""
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",

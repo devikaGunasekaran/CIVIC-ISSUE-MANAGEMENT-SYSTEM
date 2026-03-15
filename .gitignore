@@ -93,3 +93,5 @@ uploads/
 
 # Temporary files
 tmp/
+
+backend/.env

@@ -30,6 +30,7 @@ class AuthService:
         new_user = User(
             username=user_in.username,
             email=user_in.email,
+            phone=user_in.phone if hasattr(user_in, 'phone') else None,
             hashed_password=hashed_pw,
             area=user_in.area,
             role="citizen"

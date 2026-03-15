@@ -110,7 +110,7 @@ function AdminDashboard() {
 
     const statusStats = {
         total: complaints.length,
-        submitted: complaints.filter(c => c.status === 'SUBMITTED').length,
+        submitted: complaints.filter(c => c.status === 'PENDING').length,
         inProgress: complaints.filter(c => c.status === 'IN_PROGRESS').length,
         resolved: complaints.filter(c => c.status === 'RESOLVED').length
     };
@@ -168,7 +168,7 @@ function AdminDashboard() {
                     color="primary"
                 />
                 <StatCard
-                    label={t('statuses.SUBMITTED')}
+                    label={t('statuses.PENDING', { defaultValue: 'PENDING' })}
                     value={statusStats.submitted}
                     icon={<Clock size={28} />}
                     trend="-5%"
@@ -279,7 +279,7 @@ function AdminDashboard() {
                         <FilterSelect
                             value={filterStatus}
                             onChange={setFilterStatus}
-                            options={['ALL', 'SUBMITTED', 'IN_PROGRESS', 'RESOLVED']}
+                            options={['ALL', 'PENDING', 'IN_PROGRESS', 'RESOLVED']}
                             label={t('common.allStatus')}
                             translationPrefix="statuses"
                         />
@@ -342,7 +342,12 @@ function AdminDashboard() {
                                 filteredComplaints.map((c) => (
                                     <tr key={c.id} className="group hover:bg-green-50/20 transition-all">
                                         <td className="px-6 py-6">
-                                            <span className="text-sm font-mono font-bold text-primary italic">#{c.id}</span>
+                                            <div className="space-y-1">
+                                                <span className="block text-sm font-mono font-bold text-primary italic">#{c.id}</span>
+                                                <span className="block text-[10px] text-earth/50 font-bold uppercase tracking-widest bg-earth/5 inline-block px-1.5 py-0.5 rounded-md">
+                                                    {new Date(c.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-6">
                                             <div className="flex items-center gap-2">
@@ -433,7 +438,7 @@ function AdminDashboard() {
                                 <button onClick={() => setSelectedComplaint(null)} className="p-3 bg-accent text-earth/30 rounded-2xl hover:bg-earth/10 transition-colors"><X size={20} /></button>
                             </div>
 
-                            <div className="grid sm:grid-cols-2 gap-10">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                                 <div className="space-y-6">
                                     <div className="space-y-4">
                                         <div className="space-y-2">
@@ -490,45 +495,52 @@ function AdminDashboard() {
                                             {t('admin.operationalOverride')}
                                         </h4>
                                         <div className="flex flex-col gap-3">
-                                            {selectedComplaint.status === 'SUBMITTED' && (
+                                            {selectedComplaint.status === 'PENDING' && (
                                                 <button
                                                     onClick={() => handleStatusUpdate(selectedComplaint.id, 'IN_PROGRESS')}
-                                                    className="w-full py-4 bg-amber-500 text-white font-bold rounded-2xl shadow-lg shadow-amber-100 hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+                                                    className="w-full py-3.5 px-4 bg-orange-500 text-white font-bold rounded-full shadow-md hover:bg-orange-600 transition-all flex items-center justify-center gap-2 text-sm"
                                                 >
-                                                    <Clock size={20} /> {t('admin.startWork')}
+                                                    <span className="truncate">{t('admin.startWork', { defaultValue: 'Start Investigation' })}</span>
                                                 </button>
                                             )}
 
-                                            {selectedComplaint.status !== 'RESOLVED' && (
+                                            {selectedComplaint.status !== 'RESOLVED' && selectedComplaint.status !== 'REJECTED' && (
                                                 <button
                                                     onClick={() => handleStatusUpdate(selectedComplaint.id, 'RESOLVED')}
-                                                    className="w-full py-4 bg-primary text-white font-bold rounded-2xl shadow-lg shadow-green-100 hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
+                                                    className="w-full py-3.5 px-4 bg-[#5E7D32] text-white font-bold rounded-full shadow-md hover:bg-[#4d6629] transition-all flex items-center justify-center gap-2 text-sm"
                                                 >
-                                                    <CheckCircle2 size={20} /> {t('admin.markResolved')}
+                                                    <CheckCircle2 size={16} className="shrink-0" />
+                                                    <span className="truncate">{t('admin.markResolved', { defaultValue: 'Mark as Completed' })}</span>
                                                 </button>
                                             )}
 
                                             {selectedComplaint.status === 'RESOLVED' && (
-                                                <div className="w-full py-4 bg-green-100 text-primary font-bold rounded-2xl flex items-center justify-center gap-2 border border-primary/20">
-                                                    <CheckCircle2 size={20} /> {t('statuses.RESOLVED')}
+                                                <div className="w-full py-3.5 px-4 bg-[#5E7D32]/10 text-[#5E7D32] font-bold rounded-full flex items-center justify-center gap-2 border border-[#5E7D32]/20 text-sm">
+                                                    <CheckCircle2 size={16} className="shrink-0" />
+                                                    <span className="truncate">{t('statuses.RESOLVED', { defaultValue: 'RESOLVED' })}</span>
                                                 </div>
                                             )}
 
-                                            <button
-                                                onClick={() => handleStatusUpdate(selectedComplaint.id, 'REJECTED')}
-                                                className="w-full py-3 bg-white border border-red-100 text-red-500 text-xs font-bold rounded-xl hover:bg-red-50 transition-all"
-                                            >
-                                                {t('admin.rejectComplaint')}
-                                            </button>
+                                            {selectedComplaint.status !== 'REJECTED' && selectedComplaint.status !== 'RESOLVED' && (
+                                                <button
+                                                    onClick={() => handleStatusUpdate(selectedComplaint.id, 'REJECTED')}
+                                                    className="w-full py-3.5 px-4 bg-white border-2 border-red-50 text-red-500 font-bold rounded-full hover:bg-red-50 transition-all text-sm flex items-center justify-center gap-2"
+                                                >
+                                                    <X size={16} className="shrink-0" />
+                                                    <span className="truncate">{t('admin.rejectComplaint', { defaultValue: 'Reject / Spam' })}</span>
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
 
                                     <div className="pt-6 border-t border-earth/10 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-xs text-earth/30 font-bold uppercase tracking-widest">{t('admin.aiInsightLabel')}</p>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-bold text-gray-400">AI Priority Score:</span>
-                                                <span className="text-[10px] font-black text-primary">{selectedComplaint.priority_score || 0}/100</span>
+                                        <div className="flex flex-col gap-2">
+                                            <p className="text-[10px] text-earth/40 font-bold uppercase tracking-widest leading-relaxed">
+                                                {t('admin.aiInsightLabel')}
+                                            </p>
+                                            <div className="flex items-center gap-2 w-fit bg-primary/5 px-3 py-1.5 rounded-xl border border-primary/10">
+                                                <span className="text-[10px] font-bold text-gray-500">AI Priority Score:</span>
+                                                <span className="text-sm font-black text-primary">{selectedComplaint.priority_score || 0}/100</span>
                                             </div>
                                         </div>
 
@@ -622,14 +634,14 @@ function FilterSelect({ value, onChange, options, label, translationPrefix }) {
 
 function StatusCapsule({ status }) {
     const styles = {
-        SUBMITTED: 'bg-blue-50 text-blue-600 border-blue-100 shadow-blue-50',
+        PENDING: 'bg-blue-50 text-blue-600 border-blue-100 shadow-blue-50',
         IN_PROGRESS: 'bg-highlight/20 text-earth border-highlight/30 shadow-highlight/10',
         RESOLVED: 'bg-primary/10 text-primary border-primary/20 shadow-primary/5',
         REJECTED: 'bg-red-50 text-red-600 border-red-100 shadow-red-50'
     };
 
     return (
-        <div className={`px-4 py-2 rounded-xl text-[0.65rem] font-bold border-2 ${styles[status] || styles.SUBMITTED} uppercase tracking-widest shadow-sm inline-flex items-center gap-2`}>
+        <div className={`px-4 py-2 rounded-xl text-[0.65rem] font-bold border-2 ${styles[status] || styles.PENDING} uppercase tracking-widest shadow-sm inline-flex items-center gap-2`}>
             {status === 'RESOLVED' && <CheckCircle2 size={12} />}
             {status}
         </div>

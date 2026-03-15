@@ -64,7 +64,7 @@ function ComplaintDetail() {
 
     const timeline = [
         { status: t('track.submitted'), icon: <Send size={16} />, active: true, date: t('common.latest') },
-        { status: t('track.pending'), icon: <Sparkles size={16} />, active: complaint.status !== 'SUBMITTED', date: 'AI Analyzed' },
+        { status: t('track.pending'), icon: <Sparkles size={16} />, active: complaint.status !== 'PENDING', date: 'AI Analyzed' },
         { status: t('track.resolved'), icon: <CheckCircle2 size={16} />, active: complaint.status === 'RESOLVED', date: 'Resolution' }
     ];
 
@@ -359,8 +359,8 @@ function PriorityBadge({ priority, size = 'sm' }) {
 
 function StatusBadge({ status }) {
     const style = {
-        SUBMITTED: 'bg-blue-50 text-blue-600 border-blue-100',
-        PENDING: 'bg-orange-50 text-orange-600 border-orange-100',
+        PENDING: 'bg-blue-50 text-blue-600 border-blue-100',
+        IN_PROGRESS: 'bg-highlight/20 text-earth border-highlight/30',
         RESOLVED: 'bg-green-50 text-green-600 border-green-100',
         REJECTED: 'bg-red-50 text-red-600 border-red-100'
     };

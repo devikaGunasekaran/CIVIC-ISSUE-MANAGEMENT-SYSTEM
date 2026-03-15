@@ -10,7 +10,7 @@ load_dotenv()
 from .core.database import engine, Base
 from .models.user import User
 from .models.complaint import Complaint
-from .controllers import auth_controller, complaint_controller, admin_controller, stt_controller, chatbot_controller
+from .controllers import auth_controller, complaint_controller, admin_controller, stt_controller, chatbot_controller, user_controller
 
 # Initialize Database
 try:
@@ -36,6 +36,7 @@ app.include_router(complaint_controller.router)
 app.include_router(admin_controller.router)
 app.include_router(stt_controller.router)
 app.include_router(chatbot_controller.router)
+app.include_router(user_controller.router)
 
 # Serve uploaded files statically
 UPLOAD_DIR = "uploads"

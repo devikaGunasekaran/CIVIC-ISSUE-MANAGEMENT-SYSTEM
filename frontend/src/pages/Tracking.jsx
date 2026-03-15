@@ -36,7 +36,7 @@ function Tracking() {
         return matchesSearch && matchesFilter;
     });
 
-    const categories = ['ALL', 'SUBMITTED', 'PENDING', 'RESOLVED'];
+    const categories = ['ALL', 'PENDING', 'IN_PROGRESS', 'RESOLVED'];
 
     return (
         <div className="max-w-7xl mx-auto py-12 px-8 animate-fade-in-up">
@@ -212,8 +212,8 @@ function PriorityBadge({ priority, size = 'sm' }) {
 
 function StatusBadge({ status }) {
     const styles = {
-        SUBMITTED: 'bg-blue-50 text-blue-700 border-blue-100',
-        PENDING: 'bg-highlight/20 text-earth border-highlight/30',
+        PENDING: 'bg-blue-50 text-blue-700 border-blue-100',
+        IN_PROGRESS: 'bg-highlight/20 text-earth border-highlight/30',
         RESOLVED: 'bg-primary/10 text-primary border-primary/20',
         REJECTED: 'bg-red-50 text-red-700 border-red-100'
     };
